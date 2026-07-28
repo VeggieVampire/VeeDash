@@ -5,6 +5,8 @@
   "chatPopupSeconds": 6.5,
   "autoReconnect": true,
   "autoDim": true,
+  "runCommandOnConnect": false,
+  "onlineCommand": "python --version",
   "nightBrightness": 0.4,
   "nightExtraDim": 0.22,
   "backgroundColor": "#000000",

@@ -28,6 +28,8 @@ LAST_CLIENT = BASE / "VeeDash-last-client.txt"
 LAST_CONTACT = BASE / "VeeDash-last-contact.txt"
 LAST_CONFIG_SERVED = BASE / "VeeDash-last-config-served.txt"
 LAST_WELCOME = BASE / "VeeDash-last-welcome.txt"
+LAST_COMMAND_RUN = BASE / "VeeDash-last-command-run.txt"
+COMMAND_OUTPUT = BASE / "VeeDash-command-output.txt"
 SERVER_PORT = 8766
 AWAY_SECONDS = 45
 
@@ -48,6 +50,8 @@ DEFAULT = {
     "chatPopupSeconds": 6.5,
     "autoReconnect": True,
     "autoDim": True,
+    "runCommandOnConnect": False,
+    "onlineCommand": "python --version",
     "nightBrightness": 0.40,
     "nightExtraDim": 0.22,
     "backgroundColor": "#000000",
@@ -177,9 +181,10 @@ def note_dash_contact(ip, route):
     now = datetime.now().isoformat(timespec="seconds")
     previous_contact = file_mtime(LAST_CONTACT)
     previous_welcome = file_mtime(LAST_WELCOME)
+    was_away = previous_contact == 0 or time.time() - previous_contact > AWAY_SECONDS
     LAST_CLIENT.write_text(ip, encoding="utf-8")
     stamp(LAST_CONTACT, f"{now} from={ip} {route}")
-    if previous_contact == 0 or time.time() - previous_contact > AWAY_SECONDS:
+    if was_away:
         if previous_welcome < previous_contact or time.time() - previous_welcome > AWAY_SECONDS:
             MESSAGE.write_text(
                 "Hello VeeDash, welcome back.\n"
@@ -188,6 +193,46 @@ def note_dash_contact(ip, route):
                 encoding="utf-8",
             )
             stamp(LAST_WELCOME, f"{now} welcomed {ip}")
+        maybe_run_online_command(ip, route)
+
+
+def maybe_run_online_command(ip, route):
+    try:
+        data = json.loads(CONFIG.read_text(encoding="utf-8", errors="replace")) if CONFIG.exists() else {}
+    except Exception:
+        data = {}
+    if not data.get("runCommandOnConnect", False):
+        return
+    command = str(data.get("onlineCommand", "")).strip()
+    if not command:
+        return
+    now = datetime.now().isoformat(timespec="seconds")
+    stamp(LAST_COMMAND_RUN, f"{now} from={ip} route={route} command={command}")
+    threading.Thread(target=run_online_command_worker, args=(command, ip, route, now), daemon=True).start()
+
+
+def run_online_command_worker(command, ip, route, started):
+    header = f"{started} car online from {ip} via {route}\n$ {command}\n"
+    COMMAND_OUTPUT.write_text(header + "Running...\n", encoding="utf-8")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(BASE),
+            shell=True,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        output = [header, f"exit code: {result.returncode}"]
+        if result.stdout:
+            output.append("\nSTDOUT\n" + result.stdout.strip())
+        if result.stderr:
+            output.append("\nSTDERR\n" + result.stderr.strip())
+        COMMAND_OUTPUT.write_text("\n".join(output).strip(), encoding="utf-8")
+    except subprocess.TimeoutExpired:
+        COMMAND_OUTPUT.write_text(header + "Timed out after 60 seconds.", encoding="utf-8")
+    except Exception as ex:
+        COMMAND_OUTPUT.write_text(header + f"Failed: {ex}", encoding="utf-8")
 
 
 def background_asset_path():
@@ -343,6 +388,7 @@ class Editor(tk.Tk):
         self.gif_frames = []
         self.gif_index = 0
         self.gif_last = 0
+        self.command_output_mtime = 0
         self.server_address = tk.StringVar(value="")
         self.dash_client_ip = tk.StringVar(value=str(self.data.get("dashClientIp", "")))
         self.info_text = tk.StringVar(value="Starting editor server.")
@@ -436,6 +482,7 @@ class Editor(tk.Tk):
         self.chat_popup_seconds = tk.DoubleVar(value=float(self.data.get("chatPopupSeconds", 6.5)))
         self.auto_reconnect = tk.BooleanVar(value=self.data.get("autoReconnect", True))
         self.auto_dim = tk.BooleanVar(value=self.data.get("autoDim", True))
+        self.run_command_on_connect = tk.BooleanVar(value=self.data.get("runCommandOnConnect", False))
         ttk.Checkbutton(left, text="Show debug log", variable=self.show_log, command=self.changed).pack(anchor="w")
         ttk.Checkbutton(left, text="Show chat box", variable=self.show_chat, command=self.changed).pack(anchor="w")
         ttk.Label(left, text="Chat popup seconds").pack(anchor="w")
@@ -486,11 +533,15 @@ class Editor(tk.Tk):
         ttk.Label(left, text="Run local program").pack(anchor="w")
         self.command_text = tk.Text(left, height=3, width=30)
         self.command_text.pack(fill=tk.X)
-        self.command_text.insert("1.0", "python --version")
+        self.command_text.insert("1.0", str(self.data.get("onlineCommand", "python --version")))
+        ttk.Checkbutton(left, text="Run when car comes online", variable=self.run_command_on_connect, command=self.save_command_settings).pack(anchor="w", pady=(4, 0))
         ttk.Button(left, text="Run command", command=self.run_command).pack(fill=tk.X, pady=4)
         self.command_output = tk.Text(left, height=6, width=30)
         self.command_output.pack(fill=tk.X)
-        self.command_output.insert("1.0", "Command output will appear here.")
+        if COMMAND_OUTPUT.exists():
+            self.command_output.insert("1.0", COMMAND_OUTPUT.read_text(encoding="utf-8", errors="replace"))
+        else:
+            self.command_output.insert("1.0", "Command output will appear here.")
 
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -653,11 +704,17 @@ class Editor(tk.Tk):
     def save_message(self):
         MESSAGE.write_text(self.message.get("1.0", "end").strip(), encoding="utf-8")
 
+    def save_command_settings(self):
+        self.data["runCommandOnConnect"] = bool(self.run_command_on_connect.get())
+        self.data["onlineCommand"] = self.command_text.get("1.0", "end").strip()
+        save_config(self.data)
+
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()
         if not command:
             self.set_command_output("No command entered.")
             return
+        self.save_command_settings()
         self.set_command_output(f"Running from {BASE}:\n{command}\n\n")
         threading.Thread(target=self.run_command_worker, args=(command,), daemon=True).start()
 
@@ -683,6 +740,7 @@ class Editor(tk.Tk):
             text = f"$ {command}\nTimed out after 60 seconds."
         except Exception as ex:
             text = f"$ {command}\nFailed: {ex}"
+        COMMAND_OUTPUT.write_text(text, encoding="utf-8")
         self.after(0, lambda: self.set_command_output(text))
 
     def set_command_output(self, text):
@@ -691,6 +749,10 @@ class Editor(tk.Tk):
 
     def save_all(self, silent=False):
         self.data["dashClientIp"] = self.dash_client_ip.get().strip()
+        if hasattr(self, "run_command_on_connect"):
+            self.data["runCommandOnConnect"] = bool(self.run_command_on_connect.get())
+        if hasattr(self, "command_text"):
+            self.data["onlineCommand"] = self.command_text.get("1.0", "end").strip()
         save_config(self.data)
         if not silent:
             self.save_message()
@@ -868,7 +930,17 @@ class Editor(tk.Tk):
             self.gif_index = (self.gif_index + 1) % 100000
             self.preview_last = time.time()
             self.draw_preview()
+        self.refresh_command_output()
         self.after(80, self.tick)
+
+    def refresh_command_output(self):
+        if not hasattr(self, "command_output"):
+            return
+        mtime = file_mtime(COMMAND_OUTPUT)
+        if not mtime or mtime == self.command_output_mtime:
+            return
+        self.command_output_mtime = mtime
+        self.set_command_output(COMMAND_OUTPUT.read_text(encoding="utf-8", errors="replace"))
 
     def start_server(self):
         try:
