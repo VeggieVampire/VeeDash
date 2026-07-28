@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0820";
+    private static final String APP_VERSION = "2026.07.28-0825";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2016,6 +2016,7 @@ public class MainActivity extends Activity {
                     JSONObject reactive = g.optJSONObject("reactive");
                     if (reactive != null) {
                         gauge.reactiveGrow = reactive.optBoolean("grow", gauge.reactiveGrow);
+                        gauge.reactiveImageGrow = reactive.optBoolean("imageGrow", gauge.reactiveImageGrow);
                         gauge.reactiveTint = reactive.optBoolean("tint", gauge.reactiveTint);
                         gauge.valueMin = (float) reactive.optDouble("valueMin", gauge.valueMin);
                         gauge.valueMax = (float) reactive.optDouble("valueMax", gauge.valueMax);
@@ -2516,6 +2517,9 @@ public class MainActivity extends Activity {
 
         private void drawGaugeArt(Canvas canvas, Gauge gauge, float cx, float cy, float r) {
             if (gauge.image == null && gauge.movie == null) return;
+            Float rawValue = values.get(gauge.pid);
+            float imageScale = gauge.reactiveImageGrow ? reactiveScale(gauge, rawValue == null ? 0f : rawValue) : 1f;
+            float imageR = r * imageScale;
             int save = canvas.save();
             clipPath.reset();
             clipPath.addCircle(cx, cy, r, Path.Direction.CW);
@@ -2525,14 +2529,14 @@ public class MainActivity extends Activity {
                 int duration = gauge.movie.duration();
                 if (duration <= 0) duration = 1000;
                 gauge.movie.setTime((int) ((System.currentTimeMillis() - gauge.movieStart) % duration));
-                float scale = Math.max((r * 2f) / Math.max(1f, gauge.movie.width()), (r * 2f) / Math.max(1f, gauge.movie.height()));
+                float scale = Math.max((imageR * 2f) / Math.max(1f, gauge.movie.width()), (imageR * 2f) / Math.max(1f, gauge.movie.height()));
                 canvas.translate(cx - gauge.movie.width() * scale / 2f, cy - gauge.movie.height() * scale / 2f);
                 canvas.scale(scale, scale);
                 gauge.movie.draw(canvas, 0, 0);
                 postInvalidateDelayed(40);
             } else {
-                RectF dst = coverRect(gauge.image.getWidth(), gauge.image.getHeight(), r * 2f, r * 2f);
-                dst.offset(cx - r, cy - r);
+                RectF dst = coverRect(gauge.image.getWidth(), gauge.image.getHeight(), imageR * 2f, imageR * 2f);
+                dst.offset(cx - imageR, cy - imageR);
                 canvas.drawBitmap(gauge.image, null, dst, paint);
             }
             canvas.restoreToCount(save);
@@ -2646,6 +2650,7 @@ public class MainActivity extends Activity {
         Movie movie;
         long movieStart;
         boolean reactiveGrow = false;
+        boolean reactiveImageGrow = false;
         boolean reactiveTint = false;
         float valueMin = 0f;
         float valueMax = 100f;

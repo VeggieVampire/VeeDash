@@ -310,6 +310,7 @@ def normalize(data):
         g.setdefault("imageAsset", "")
         reactive = dict(default_g.get("reactive", {}))
         reactive.update(g.get("reactive", {}))
+        reactive.setdefault("imageGrow", False)
         g["reactive"] = reactive
         data["gauges"].append(g)
     source_overlays = data.get("overlays") if "overlays" in data else DEFAULT["overlays"]
@@ -741,8 +742,10 @@ class Editor(tk.Tk):
 
         ttk.Label(item_tab, text="Dial response").pack(anchor="w", pady=(12, 0))
         self.reactive_grow = tk.BooleanVar(value=False)
+        self.reactive_image_grow = tk.BooleanVar(value=False)
         self.reactive_tint = tk.BooleanVar(value=False)
         ttk.Checkbutton(item_tab, text="Grow with value", variable=self.reactive_grow, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(item_tab, text="Grow image with value", variable=self.reactive_image_grow, command=self.changed).pack(anchor="w")
         ttk.Checkbutton(item_tab, text="Tint by thresholds", variable=self.reactive_tint, command=self.changed).pack(anchor="w")
         ttk.Button(item_tab, text="Auto tint selected gauge", command=self.apply_auto_tint_selected).pack(fill=tk.X, pady=(6, 2))
         ttk.Button(item_tab, text="Auto tint all known gauges", command=self.apply_auto_tint_all).pack(fill=tk.X, pady=2)
@@ -908,6 +911,7 @@ class Editor(tk.Tk):
         self.show_border.set(item.get("showBorder", True))
         reactive = item.get("reactive", {}) if kind == "gauge" else {}
         self.reactive_grow.set(bool(reactive.get("grow", False)))
+        self.reactive_image_grow.set(bool(reactive.get("imageGrow", False)))
         self.reactive_tint.set(bool(reactive.get("tint", False)))
         for key, var in self.reactive_vars.items():
             var.set(float(reactive.get(key, DEFAULT["gauges"][0]["reactive"].get(key, 0))))
@@ -932,6 +936,7 @@ class Editor(tk.Tk):
             item["mode"] = self.mode.get()
             reactive = item.setdefault("reactive", {})
             reactive["grow"] = bool(self.reactive_grow.get())
+            reactive["imageGrow"] = bool(self.reactive_image_grow.get())
             reactive["tint"] = bool(self.reactive_tint.get())
             for key, var in self.reactive_vars.items():
                 reactive[key] = round(float(var.get()), 2)
@@ -1577,7 +1582,8 @@ class Editor(tk.Tk):
             return
         if mode in ("number", "both", "ring") or g.get("imageAsset"):
             self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=fill, outline=accent if g.get("showBorder", True) else "", width=width)
-            dial_image = self.dial_preview_image(g, int(max(8, r * 2)))
+            image_scale = self.reactive_scale(reactive, value) if reactive.get("imageGrow", False) else 1.0
+            dial_image = self.dial_preview_image(g, int(max(8, r * 2 * image_scale)))
             if dial_image:
                 self.canvas.create_image(x, y, image=dial_image)
             if tint:
