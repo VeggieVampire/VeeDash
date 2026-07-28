@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0700";
+    private static final String APP_VERSION = "2026.07.28-0710";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2169,6 +2169,9 @@ public class MainActivity extends Activity {
             Date now = new Date();
             if ("time_date".equals(clockMode)) {
                 return new String[] { formatClock("h:mm", now), formatClock("EEE MMM d", now) };
+            }
+            if ("yyyy_mm_dd_time".equals(clockMode)) {
+                return new String[] { formatClock("yyyy/MM/dd", now), formatClock("HH:mm", now) };
             }
             if ("date".equals(clockMode)) {
                 return new String[] { formatClock("MMM d", now), formatClock("yyyy", now) };
