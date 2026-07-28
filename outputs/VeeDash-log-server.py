@@ -4,14 +4,21 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote
 import json
 import os
+import re
+import shutil
 import socket
 import time
 
 
-LOG_FILE = Path(__file__).with_name("VeeDash-live-log.txt")
+BASE = Path(__file__).resolve().parent
+LOG_DIR = BASE / "VeeDash-logs"
+LEGACY_LOG_FILE = BASE / "VeeDash-live-log.txt"
+LOG_FILE = LOG_DIR / "VeeDash-live-log.txt"
 MESSAGE_FILE = Path(__file__).with_name("VeeDash-message.txt")
 CONFIG_FILE = Path(__file__).with_name("VeeDash-config.json")
 ASSETS_DIR = Path(__file__).with_name("VeeDash-assets")
+LAST_CONTACT = BASE / "VeeDash-last-contact.txt"
+AWAY_SECONDS = 45
 
 
 DEFAULT_CONFIG = {
@@ -47,6 +54,49 @@ def ensure_config():
         CONFIG_FILE.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
 
 
+def file_mtime(path):
+    try:
+        return int(path.stat().st_mtime)
+    except Exception:
+        return 0
+
+
+def ensure_log_dir():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def safe_stamp(value=None):
+    raw = value or datetime.now().isoformat(timespec="seconds")
+    return re.sub(r"[^0-9A-Za-z_-]+", "-", raw).strip("-")
+
+
+def rotate_live_log(reason, ip):
+    ensure_log_dir()
+    for source in (LOG_FILE, LEGACY_LOG_FILE):
+        try:
+            if not source.exists() or source.stat().st_size == 0:
+                continue
+            archive = LOG_DIR / f"VeeDash-log-{safe_stamp()}-{safe_stamp(ip)}-{reason}.txt"
+            shutil.copy2(source, archive)
+            source.write_text("", encoding="utf-8")
+            return archive
+        except Exception:
+            continue
+    LOG_FILE.touch(exist_ok=True)
+    return None
+
+
+def note_contact(ip, route):
+    if ip in ("127.0.0.1", "::1"):
+        return
+    previous_contact = file_mtime(LAST_CONTACT)
+    if previous_contact == 0 or time.time() - previous_contact > AWAY_SECONDS:
+        archive = rotate_live_log(route, ip)
+        if archive:
+            MESSAGE_FILE.write_text(f"Car connected to PC.\nPrevious logs saved:\n{archive.name}", encoding="utf-8")
+    LAST_CONTACT.write_text(f"{datetime.now().isoformat(timespec='seconds')} from={ip} {route}", encoding="utf-8")
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -55,6 +105,8 @@ class Handler(BaseHTTPRequestHandler):
         seq = fields.get("seq", [""])[0]
         line = fields.get("line", [""])[0]
         now = datetime.now().isoformat(timespec="seconds")
+        note_contact(self.client_address[0], "log")
+        ensure_log_dir()
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(f"{now} seq={seq} from={self.client_address[0]} {line}\n")
         self.send_response(204)

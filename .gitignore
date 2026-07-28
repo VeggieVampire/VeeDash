@@ -13,10 +13,14 @@ __pycache__/
 outputs/__pycache__/
 
 # Runtime logs and machine-local connection state
+outputs/VeeDash-logs/
 outputs/VeeDash-live-log.txt
 outputs/VeeDash-last-client.txt
 outputs/VeeDash-last-contact.txt
 outputs/VeeDash-last-config-served.txt
+outputs/VeeDash-last-welcome.txt
+outputs/VeeDash-last-command-run.txt
+outputs/VeeDash-command-output.txt
 
 # Duplicate/debug-named build artifact
 outputs/VeeDash-debug.apk

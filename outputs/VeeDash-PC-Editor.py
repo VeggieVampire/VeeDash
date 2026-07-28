@@ -24,7 +24,9 @@ BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "VeeDash-config.json"
 MESSAGE = BASE / "VeeDash-message.txt"
 ASSETS = BASE / "VeeDash-assets"
-LOG_FILE = BASE / "VeeDash-live-log.txt"
+LOG_DIR = BASE / "VeeDash-logs"
+LEGACY_LOG_FILE = BASE / "VeeDash-live-log.txt"
+LOG_FILE = LOG_DIR / "VeeDash-live-log.txt"
 LAST_CLIENT = BASE / "VeeDash-last-client.txt"
 LAST_CONTACT = BASE / "VeeDash-last-contact.txt"
 LAST_CONFIG_SERVED = BASE / "VeeDash-last-config-served.txt"
@@ -247,17 +249,18 @@ def local_ip():
 
 
 def latest_logged_client_ip():
-    if not LOG_FILE.exists():
-        return ""
     pattern = re.compile(r"\bfrom=(\d{1,3}(?:\.\d{1,3}){3})\b")
-    try:
-        lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return ""
-    for line in reversed(lines):
-        match = pattern.search(line)
-        if match and match.group(1) != "127.0.0.1":
-            return match.group(1)
+    for path in (LOG_FILE, LEGACY_LOG_FILE):
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        for line in reversed(lines):
+            match = pattern.search(line)
+            if match and match.group(1) != "127.0.0.1":
+                return match.group(1)
     return ""
 
 
@@ -279,6 +282,32 @@ def stamp(path, text=""):
     path.write_text(text or datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
 
 
+def ensure_log_dir():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def safe_stamp_for_filename(value=None):
+    raw = value or datetime.now().isoformat(timespec="seconds")
+    return re.sub(r"[^0-9A-Za-z_-]+", "-", raw).strip("-")
+
+
+def rotate_live_log(reason, ip):
+    ensure_log_dir()
+    candidates = [LOG_FILE, LEGACY_LOG_FILE]
+    for source in candidates:
+        try:
+            if not source.exists() or source.stat().st_size == 0:
+                continue
+            archive = LOG_DIR / f"VeeDash-log-{safe_stamp_for_filename()}-{safe_stamp_for_filename(ip)}-{reason}.txt"
+            shutil.copy2(source, archive)
+            source.write_text("", encoding="utf-8")
+            return archive
+        except Exception:
+            continue
+    LOG_FILE.touch(exist_ok=True)
+    return None
+
+
 def note_dash_contact(ip, route):
     if ip in ("127.0.0.1", "::1"):
         return
@@ -289,8 +318,12 @@ def note_dash_contact(ip, route):
     LAST_CLIENT.write_text(ip, encoding="utf-8")
     stamp(LAST_CONTACT, f"{now} from={ip} {route}")
     if was_away:
+        archive = rotate_live_log(route, ip)
         if previous_welcome < previous_contact or time.time() - previous_welcome > AWAY_SECONDS:
-            MESSAGE.write_text(random.choice(WELCOME_MESSAGES), encoding="utf-8")
+            message = random.choice(WELCOME_MESSAGES)
+            if archive:
+                message += f"\nPrevious logs saved:\n{archive.name}"
+            MESSAGE.write_text(message, encoding="utf-8")
             stamp(LAST_WELCOME, f"{now} welcomed {ip}")
         maybe_run_online_command(ip, route)
 
@@ -384,9 +417,10 @@ class VeeDashHandler(BaseHTTPRequestHandler):
         seq = fields.get("seq", [""])[0]
         line = fields.get("line", [""])[0]
         now = datetime.now().isoformat(timespec="seconds")
+        note_dash_contact(self.client_address[0], "log")
+        ensure_log_dir()
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(f"{now} seq={seq} from={self.client_address[0]} {line}\n")
-        note_dash_contact(self.client_address[0], "log")
         self.send_response(204)
         self.end_headers()
 
