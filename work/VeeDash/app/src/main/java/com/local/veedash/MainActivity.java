@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0915";
+    private static final String APP_VERSION = "2026.07.28-0925";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2795,6 +2795,55 @@ public class MainActivity extends Activity {
         List<String> pids();
     }
 
+    private static List<String> decodeDtcReply(String raw, String responseHeader) {
+        List<String> codes = new ArrayList<>();
+        if (raw == null) return codes;
+        String hex = raw.toUpperCase(Locale.US).replaceAll("[^0-9A-F]", "");
+        int start = hex.indexOf(responseHeader);
+        while (start >= 0) {
+            int pos = start + responseHeader.length();
+            while (pos + 4 <= hex.length()) {
+                int a;
+                int b;
+                try {
+                    a = Integer.parseInt(hex.substring(pos, pos + 2), 16);
+                    b = Integer.parseInt(hex.substring(pos + 2, pos + 4), 16);
+                } catch (Exception ex) {
+                    break;
+                }
+                pos += 4;
+                if (a == 0 && b == 0) continue;
+                char system = "PCBU".charAt((a & 0xC0) >> 6);
+                int firstDigit = (a & 0x30) >> 4;
+                String code = String.format(Locale.US, "%c%d%02X%02X", system, firstDigit, a & 0x0F, b);
+                if (!codes.contains(code)) codes.add(code);
+            }
+            start = hex.indexOf(responseHeader, start + responseHeader.length());
+        }
+        return codes;
+    }
+
+    private static String formatDtcSummary(List<String> stored, List<String> pending, List<String> permanent) {
+        StringBuilder out = new StringBuilder();
+        if (!stored.isEmpty()) out.append("Stored: ").append(joinCodes(stored)).append('\n');
+        if (!pending.isEmpty()) out.append("Pending: ").append(joinCodes(pending)).append('\n');
+        if (!permanent.isEmpty()) out.append("Permanent: ").append(joinCodes(permanent)).append('\n');
+        if (out.length() == 0) {
+            out.append("No standard engine OBD-II DTCs returned.\n");
+        }
+        out.append("EPS/steering faults on Honda may live in the EPS module. Use a scanner that reads Honda EPS codes.");
+        return out.toString().trim();
+    }
+
+    private static String joinCodes(List<String> codes) {
+        StringBuilder out = new StringBuilder();
+        for (String code : codes) {
+            if (out.length() > 0) out.append(", ");
+            out.append(code);
+        }
+        return out.toString();
+    }
+
     private static class ObdSession extends Thread implements ObdLink {
         private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
         private final BluetoothDevice device;
@@ -2846,6 +2895,7 @@ public class MainActivity extends Activity {
                 output = socket.getOutputStream();
                 initElm();
                 listener.onStatus("Connected");
+                checkStandardDtcs();
                 while (running) {
                     Map<String, Float> values = pollValues();
                     listener.onValues(values);
@@ -2901,6 +2951,7 @@ public class MainActivity extends Activity {
                 last = tryAllClassicSockets();
                 if (last == null) {
                     listener.onStatus("Connected");
+                    checkStandardDtcs();
                     while (running) {
                         Map<String, Float> values = pollValues();
                         listener.onValues(values);
@@ -3025,6 +3076,22 @@ public class MainActivity extends Activity {
             command("ATH0", 200);
             command("ATSP0", 600);
             command("0100", 800);
+        }
+
+        private void checkStandardDtcs() throws IOException, InterruptedException {
+            listener.onStatus("Checking standard OBD-II fault codes...");
+            String storedRaw = command("03", 1200);
+            String pendingRaw = command("07", 1200);
+            String permanentRaw = command("0A", 1200);
+            List<String> stored = decodeDtcReply(storedRaw, "43");
+            List<String> pending = decodeDtcReply(pendingRaw, "47");
+            List<String> permanent = decodeDtcReply(permanentRaw, "4A");
+            diag.log("DTC raw stored=" + compact(storedRaw));
+            diag.log("DTC raw pending=" + compact(pendingRaw));
+            diag.log("DTC raw permanent=" + compact(permanentRaw));
+            String summary = formatDtcSummary(stored, pending, permanent);
+            diag.log("DTC " + summary.replace('\n', ' '));
+            listener.onStatus("DTC check done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
@@ -3195,6 +3262,7 @@ public class MainActivity extends Activity {
                 waitUntilReady();
                 initElm();
                 listener.onStatus("BLE connected");
+                checkStandardDtcs();
                 while (running) {
                     listener.onValues(pollValues());
                     Thread.sleep(420);
@@ -3354,6 +3422,22 @@ public class MainActivity extends Activity {
             command("ATH0", 300);
             command("ATSP0", 900);
             command("0100", 900);
+        }
+
+        private void checkStandardDtcs() throws IOException, InterruptedException {
+            listener.onStatus("Checking standard OBD-II fault codes...");
+            String storedRaw = command("03", 1500);
+            String pendingRaw = command("07", 1500);
+            String permanentRaw = command("0A", 1500);
+            List<String> stored = decodeDtcReply(storedRaw, "43");
+            List<String> pending = decodeDtcReply(pendingRaw, "47");
+            List<String> permanent = decodeDtcReply(permanentRaw, "4A");
+            diag.log("DTC raw stored=" + compact(storedRaw));
+            diag.log("DTC raw pending=" + compact(pendingRaw));
+            diag.log("DTC raw permanent=" + compact(permanentRaw));
+            String summary = formatDtcSummary(stored, pending, permanent);
+            diag.log("DTC " + summary.replace('\n', ' '));
+            listener.onStatus("DTC check done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
