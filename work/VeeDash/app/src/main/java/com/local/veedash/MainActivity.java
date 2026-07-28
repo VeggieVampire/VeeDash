@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0925";
+    private static final String APP_VERSION = "2026.07.28-0935";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -479,6 +479,7 @@ public class MainActivity extends Activity {
         addMenuHeader("Debug");
         addMenuButton("Show / hide log", v -> toggleLog());
         addMenuButton("Sync Now", v -> pullNow());
+        addMenuButton("Experimental scan", v -> runExperimentalScan());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -544,6 +545,18 @@ public class MainActivity extends Activity {
         String snapshot = diagLog.toString();
         if (snapshot.trim().isEmpty()) return;
         sendRemoteLog("LOG SNAPSHOT FROM SYNC NOW\n" + snapshot);
+    }
+
+    private void runExperimentalScan() {
+        if (obdSession == null) {
+            popupChat("Experimental scan needs an active VeePeak connection first.");
+            addDiag("Experimental scan skipped: no OBD session");
+            return;
+        }
+        popupChat("Experimental scan started.\nRaw replies will go to debug log.");
+        addDiag("Experimental scan requested");
+        obdSession.experimentalScan();
+        hideConfigPanel();
     }
 
     private void scanAndOpenDevicePicker() {
@@ -2779,6 +2792,7 @@ public class MainActivity extends Activity {
     private interface ObdLink {
         void start();
         void close();
+        void experimentalScan();
 
         interface Listener {
             void onStatus(String text);
@@ -2856,6 +2870,7 @@ public class MainActivity extends Activity {
         private InputStream input;
         private OutputStream output;
         private volatile boolean running = true;
+        private volatile boolean experimentalScanRequested = false;
 
         ObdSession(BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, String selectedPin, boolean autoTry, PollPidSource pollPidSource) {
             this.device = device;
@@ -2897,6 +2912,7 @@ public class MainActivity extends Activity {
                 listener.onStatus("Connected");
                 checkStandardDtcs();
                 while (running) {
+                    runExperimentalScanIfRequested();
                     Map<String, Float> values = pollValues();
                     listener.onValues(values);
                     Thread.sleep(350);
@@ -2913,6 +2929,10 @@ public class MainActivity extends Activity {
         public void close() {
             running = false;
             closeSocketOnly();
+        }
+
+        public void experimentalScan() {
+            experimentalScanRequested = true;
         }
 
         private void waitForBond() throws InterruptedException {
@@ -2934,7 +2954,9 @@ public class MainActivity extends Activity {
             last = tryAllClassicSockets();
             if (last == null) {
                 listener.onStatus("Connected");
+                checkStandardDtcs();
                 while (running) {
+                    runExperimentalScanIfRequested();
                     Map<String, Float> values = pollValues();
                     listener.onValues(values);
                     Thread.sleep(350);
@@ -2953,6 +2975,7 @@ public class MainActivity extends Activity {
                     listener.onStatus("Connected");
                     checkStandardDtcs();
                     while (running) {
+                        runExperimentalScanIfRequested();
                         Map<String, Float> values = pollValues();
                         listener.onValues(values);
                         Thread.sleep(350);
@@ -3092,6 +3115,31 @@ public class MainActivity extends Activity {
             String summary = formatDtcSummary(stored, pending, permanent);
             diag.log("DTC " + summary.replace('\n', ' '));
             listener.onStatus("DTC check done. See debug log.");
+        }
+
+        private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
+            if (!experimentalScanRequested) return;
+            experimentalScanRequested = false;
+            listener.onStatus("Experimental scan running...");
+            diag.log("EXPERIMENTAL scan start. Raw data only; Honda EPS may need module-specific commands.");
+            String[] commands = new String[]{
+                    "0101", "03", "07", "0A",
+                    "ATDPN", "ATDP",
+                    "0600", "0902", "0904", "090A",
+                    "220001", "220101", "222001", "22F190", "22F18C", "22F18A"
+            };
+            for (String cmd : commands) {
+                if (!running) break;
+                try {
+                    String reply = command(cmd, cmd.startsWith("22") ? 1800 : 1400);
+                    diag.log("EXPERIMENTAL " + cmd + " => " + compact(reply));
+                } catch (Exception ex) {
+                    diag.log("EXPERIMENTAL " + cmd + " failed: " + ex.getMessage());
+                }
+                Thread.sleep(80);
+            }
+            diag.log("EXPERIMENTAL scan done. If EPS light remains and no EPS/C-code appears, use Honda EPS-capable scanner data to add exact commands.");
+            listener.onStatus("Experimental scan done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
@@ -3244,6 +3292,7 @@ public class MainActivity extends Activity {
         private final StringBuilder rx = new StringBuilder();
         private volatile boolean running = true;
         private volatile boolean ready;
+        private volatile boolean experimentalScanRequested = false;
 
         BleObdSession(Context context, BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, PollPidSource pollPidSource) {
             this.context = context.getApplicationContext();
@@ -3264,6 +3313,7 @@ public class MainActivity extends Activity {
                 listener.onStatus("BLE connected");
                 checkStandardDtcs();
                 while (running) {
+                    runExperimentalScanIfRequested();
                     listener.onValues(pollValues());
                     Thread.sleep(420);
                 }
@@ -3284,6 +3334,13 @@ public class MainActivity extends Activity {
             if (gatt != null) {
                 try { gatt.disconnect(); } catch (Exception ignored) {}
                 try { gatt.close(); } catch (Exception ignored) {}
+            }
+        }
+
+        public void experimentalScan() {
+            experimentalScanRequested = true;
+            synchronized (lock) {
+                lock.notifyAll();
             }
         }
 
@@ -3438,6 +3495,31 @@ public class MainActivity extends Activity {
             String summary = formatDtcSummary(stored, pending, permanent);
             diag.log("DTC " + summary.replace('\n', ' '));
             listener.onStatus("DTC check done. See debug log.");
+        }
+
+        private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
+            if (!experimentalScanRequested) return;
+            experimentalScanRequested = false;
+            listener.onStatus("Experimental scan running...");
+            diag.log("EXPERIMENTAL BLE scan start. Raw data only; Honda EPS may need module-specific commands.");
+            String[] commands = new String[]{
+                    "0101", "03", "07", "0A",
+                    "ATDPN", "ATDP",
+                    "0600", "0902", "0904", "090A",
+                    "220001", "220101", "222001", "22F190", "22F18C", "22F18A"
+            };
+            for (String cmd : commands) {
+                if (!running) break;
+                try {
+                    String reply = command(cmd, cmd.startsWith("22") ? 2200 : 1700);
+                    diag.log("EXPERIMENTAL " + cmd + " => " + compact(reply));
+                } catch (Exception ex) {
+                    diag.log("EXPERIMENTAL " + cmd + " failed: " + ex.getMessage());
+                }
+                Thread.sleep(120);
+            }
+            diag.log("EXPERIMENTAL scan done. If EPS light remains and no EPS/C-code appears, use Honda EPS-capable scanner data to add exact commands.");
+            listener.onStatus("Experimental scan done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
