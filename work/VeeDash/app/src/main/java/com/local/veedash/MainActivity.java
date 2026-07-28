@@ -85,7 +85,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0640";
+    private static final String APP_VERSION = "2026.07.28-0650";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -472,7 +472,7 @@ public class MainActivity extends Activity {
         menuContent.removeAllViews();
         addMenuHeader("Debug");
         addMenuButton("Show / hide log", v -> toggleLog());
-        addMenuButton("Copy log", v -> copyLog());
+        addMenuButton("Pull Now / copy log", v -> pullNow());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -520,17 +520,24 @@ public class MainActivity extends Activity {
     }
 
     private void pullNow() {
+        copyLog();
+        sendLogSnapshotToPc();
         fetchRemoteMessage();
         fetchRemoteConfig(true);
-        popupChat("Pulling latest dashboard config\n" + serverBase());
+        popupChat("Pulling latest dashboard config\nCopied and sent debug log\n" + serverBase());
     }
 
     private void copyLog() {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         if (clipboard != null) {
             clipboard.setPrimaryClip(ClipData.newPlainText("VeeDash log", diagLog.toString()));
-            toast("Log copied");
         }
+    }
+
+    private void sendLogSnapshotToPc() {
+        String snapshot = diagLog.toString();
+        if (snapshot.trim().isEmpty()) return;
+        sendRemoteLog("LOG SNAPSHOT FROM PULL NOW\n" + snapshot);
     }
 
     private void cycleDevice(int delta) {
@@ -764,6 +771,10 @@ public class MainActivity extends Activity {
         return serverBase() + "/config";
     }
 
+    private String cacheBusted(String url) {
+        return url + (url.contains("?") ? "&" : "?") + "pull=" + System.currentTimeMillis();
+    }
+
     private String helloUrl(String host) {
         return "http://" + host + ":" + pcPort + "/hello";
     }
@@ -893,10 +904,12 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
-                conn = (HttpURLConnection) new URL(messageUrl()).openConnection();
+                conn = (HttpURLConnection) new URL(cacheBusted(messageUrl())).openConnection();
+                conn.setUseCaches(false);
                 conn.setRequestMethod("GET");
                 conn.setConnectTimeout(1000);
                 conn.setReadTimeout(1000);
+                conn.setRequestProperty("Cache-Control", "no-cache");
                 InputStream in = conn.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
                 StringBuilder out = new StringBuilder();
@@ -925,10 +938,12 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
-                conn = (HttpURLConnection) new URL(configUrl()).openConnection();
+                conn = (HttpURLConnection) new URL(cacheBusted(configUrl())).openConnection();
+                conn.setUseCaches(false);
                 conn.setRequestMethod("GET");
                 conn.setConnectTimeout(1000);
                 conn.setReadTimeout(1000);
+                conn.setRequestProperty("Cache-Control", "no-cache");
                 InputStream in = conn.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
                 StringBuilder out = new StringBuilder();
@@ -939,7 +954,7 @@ public class MainActivity extends Activity {
                 noteRemoteOk();
                 if (!config.isEmpty() && (forceApply || !config.equals(lastConfig))) {
                     ui.post(() -> {
-                        if (forceApply) popupChat("Connected to PC editor\nLoading the staged dashboard now.");
+                        if (forceApply) popupChat("Connected to PC editor\nFresh-pulling the newest staged dashboard now.");
                         addDiag(forceApply ? "Applying PC config from Pull Now, overriding local dashboard file" : "Applying changed PC config");
                         applyRemoteConfig(config);
                     });
