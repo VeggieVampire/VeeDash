@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1010";
+    private static final String APP_VERSION = "2026.07.28-1020";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -137,6 +137,7 @@ public class MainActivity extends Activity {
     private boolean autoReconnectEnabled = true;
     private boolean experimentalObdEnabled = false;
     private boolean pcSampleFetchInFlight = false;
+    private boolean pcSampleRunQueued = false;
     private boolean chatPopupEnabled = true;
     private long chatPopupMs = 6500;
     private boolean autoDimEnabled = true;
@@ -630,7 +631,7 @@ public class MainActivity extends Activity {
                 reader.close();
                 JSONObject json = new JSONObject(out.toString());
                 String seq = json.optString("seq", json.optString("updatedAt", ""));
-                if (!forceRun && !seq.isEmpty() && seq.equals(lastPcSampleSeq)) {
+                if (!forceRun && (!seq.isEmpty() && seq.equals(lastPcSampleSeq) || pcSampleRunQueued)) {
                     noteRemoteOk();
                     return;
                 }
@@ -644,8 +645,9 @@ public class MainActivity extends Activity {
                 }
                 if (commands.isEmpty()) commands.addAll(defaultSafeDtcCommands());
                 noteRemoteOk();
+                if (!seq.isEmpty()) lastPcSampleSeq = seq;
                 ui.post(() -> {
-                    if (!seq.isEmpty()) lastPcSampleSeq = seq;
+                    pcSampleRunQueued = true;
                     addDiag("PC sample commands loaded: " + commands);
                     if (obdSession != null) obdSession.experimentalScan(commands, true);
                 });
@@ -1762,6 +1764,15 @@ public class MainActivity extends Activity {
                     obdSession = null;
                     scheduleReconnect(reason);
                 });
+            }
+            @Override public void onExperimentalScanDone(boolean pcSubmitted) {
+                if (pcSubmitted) {
+                    ui.post(() -> {
+                        pcSampleRunQueued = false;
+                        addDiag("PC sample scan complete. Auto-syncing debug log to PC.");
+                        sendLogSnapshotToPc();
+                    });
+                }
             }
         };
         obdSession = selectedDevice.ble
@@ -2903,6 +2914,7 @@ public class MainActivity extends Activity {
             void onStatus(String text);
             void onValues(Map<String, Float> values);
             void onStopped(String reason);
+            void onExperimentalScanDone(boolean pcSubmitted);
         }
     }
 
@@ -3246,6 +3258,7 @@ public class MainActivity extends Activity {
             }
             diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done.");
             listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan done. See debug log.");
+            listener.onExperimentalScanDone(experimentalScanFromPc);
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
@@ -3627,6 +3640,7 @@ public class MainActivity extends Activity {
             }
             diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done.");
             listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan done. See debug log.");
+            listener.onExperimentalScanDone(experimentalScanFromPc);
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
