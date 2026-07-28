@@ -85,7 +85,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0620";
+    private static final String APP_VERSION = "2026.07.28-0640";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -383,6 +383,7 @@ public class MainActivity extends Activity {
         addMenuButton("Bluetooth", v -> showBluetoothMenu());
         addMenuButton("Server", v -> showServerMenu());
         addMenuButton("Display", v -> showDisplayMenu());
+        addMenuButton("Debug", v -> showDebugMenu());
         addMenuButton("Close", v -> hideConfigPanel());
     }
 
@@ -454,7 +455,6 @@ public class MainActivity extends Activity {
         menuContent.addView(portEdit, new LinearLayout.LayoutParams(-1, dp(56)));
 
         addMenuButton("Save server", v -> saveServerSettingsFromPanel());
-        addMenuButton("Pull Now", v -> pullNow());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -464,7 +464,15 @@ public class MainActivity extends Activity {
         addMenuHeader("Display");
         addMenuButton("Choose background", v -> pickBackground());
         addMenuButton("Reset layout", v -> dashboard.resetLayout());
-        addMenuButton("Show/hide log", v -> toggleLog());
+        addMenuButton("Back", v -> showMenuHome());
+    }
+
+    private void showDebugMenu() {
+        if (menuContent == null) return;
+        menuContent.removeAllViews();
+        addMenuHeader("Debug");
+        addMenuButton("Show / hide log", v -> toggleLog());
+        addMenuButton("Copy log", v -> copyLog());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -1487,6 +1495,7 @@ public class MainActivity extends Activity {
         StringBuilder out = new StringBuilder("DATA");
         appendDataValue(out, values, "rpm", "rpm", "%.0f");
         appendDataValue(out, values, "speed", "mph", "%.0f");
+        appendDataValue(out, values, "speedKph", "kphRaw", "%.0f");
         appendDataValue(out, values, "coolant", "coolantF", "%.0f");
         appendDataValue(out, values, "volts", "volts", "%.1f");
         appendDataValue(out, values, "load", "load", "%.0f");
@@ -2590,7 +2599,7 @@ public class MainActivity extends Activity {
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
             Map<String, Float> out = new LinkedHashMap<>();
             parseRpm(command("010C", 260), out);
-            parseByte("speed", command("010D", 220), out, 0, 1);
+            parseSpeed(command("010D", 220), out);
             parseByte("coolant", command("0105", 220), out, -40, 1);
             parseVolts(command("0142", 240), out);
             parseByte("load", command("0104", 220), out, 0, 100f / 255f);
@@ -2636,6 +2645,14 @@ public class MainActivity extends Activity {
             String pid = key.equals("speed") ? "410D" : key.equals("coolant") ? "4105" : key.equals("load") ? "4104" : "4111";
             int[] bytes = payload(raw, pid, 1);
             if (bytes != null) out.put(key, offset + bytes[0] * scale);
+        }
+
+        private void parseSpeed(String raw, Map<String, Float> out) {
+            int[] bytes = payload(raw, "410D", 1);
+            if (bytes != null) {
+                out.put("speedKph", (float) bytes[0]);
+                out.put("speed", bytes[0] * 0.621371f);
+            }
         }
 
         private void parseVolts(String raw, Map<String, Float> out) {
@@ -2851,7 +2868,7 @@ public class MainActivity extends Activity {
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
             Map<String, Float> out = new LinkedHashMap<>();
             parseRpm(command("010C", 360), out);
-            parseByte("speed", command("010D", 320), out, 0, 1);
+            parseSpeed(command("010D", 320), out);
             parseByte("coolant", command("0105", 320), out, -40, 1);
             parseVolts(command("0142", 340), out);
             parseByte("load", command("0104", 320), out, 0, 100f / 255f);
@@ -2903,6 +2920,14 @@ public class MainActivity extends Activity {
             String pid = key.equals("speed") ? "410D" : key.equals("coolant") ? "4105" : key.equals("load") ? "4104" : "4111";
             int[] bytes = payload(raw, pid, 1);
             if (bytes != null) out.put(key, offset + bytes[0] * scale);
+        }
+
+        private void parseSpeed(String raw, Map<String, Float> out) {
+            int[] bytes = payload(raw, "410D", 1);
+            if (bytes != null) {
+                out.put("speedKph", (float) bytes[0]);
+                out.put("speed", bytes[0] * 0.621371f);
+            }
         }
 
         private void parseVolts(String raw, Map<String, Float> out) {
