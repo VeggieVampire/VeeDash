@@ -305,6 +305,7 @@ def normalize(data):
         g.setdefault("label", GAUGE_LABELS.get(pid, pid.upper()))
         g.setdefault("mode", "number")
         g.setdefault("layer", default_g["layer"])
+        g.setdefault("barThickness", 0.20)
         g.setdefault("imageAsset", "")
         reactive = dict(default_g.get("reactive", {}))
         reactive.update(g.get("reactive", {}))
@@ -723,7 +724,7 @@ class Editor(tk.Tk):
 
         for name in ("x", "y"):
             self.vars[name] = tk.DoubleVar()
-        for name, label, lo, hi in [("size", "SIZE", 0.08, 0.40), ("layer", "LAYER", 0, 100)]:
+        for name, label, lo, hi in [("size", "SIZE", 0.08, 0.40), ("barThickness", "BAR THICKNESS", 0.08, 0.50), ("layer", "LAYER", 0, 100)]:
             ttk.Label(item_tab, text=label).pack(anchor="w")
             var = tk.DoubleVar()
             self.vars[name] = var
@@ -897,6 +898,7 @@ class Editor(tk.Tk):
         self.vars["x"].set(item.get("x", 0.5))
         self.vars["y"].set(item.get("y", 0.5))
         self.vars["size"].set(item.get("size", item.get("w", 0.22)))
+        self.vars["barThickness"].set(item.get("barThickness", 0.20))
         self.vars["layer"].set(item.get("layer", 20))
         self.visible.set(item.get("visible", True))
         reactive = item.get("reactive", {}) if kind == "gauge" else {}
@@ -920,6 +922,7 @@ class Editor(tk.Tk):
             label = self.item_label.get().strip()
             item["label"] = label or GAUGE_LABELS.get(pid, pid.upper())
             item["size"] = round(self.vars["size"].get(), 3)
+            item["barThickness"] = round(max(0.08, min(0.50, float(self.vars["barThickness"].get()))), 3)
             item["mode"] = self.mode.get()
             reactive = item.setdefault("reactive", {})
             reactive["grow"] = bool(self.reactive_grow.get())
@@ -1099,6 +1102,7 @@ class Editor(tk.Tk):
         item["pid"] = pid
         item["key"] = self.unique_key(name or pid)
         item["label"] = name or GAUGE_LABELS.get(pid, pid.upper())
+        item["barThickness"] = 0.20
         item["x"] = 0.5
         item["y"] = 0.5
         item["layer"] = max([g.get("layer", 20) for g in self.data["gauges"]] + [20]) + 1
@@ -1651,7 +1655,7 @@ class Editor(tk.Tk):
         pct = max(0.0, min(1.0, (float(value) - lo) / (hi - lo)))
         tint = self.reactive_tint_color(reactive, value) or accent
         bar_w = r * 2.15
-        bar_h = max(8, r * 0.20)
+        bar_h = max(6, r * float(g.get("barThickness", 0.20)))
         x1 = x - bar_w / 2
         x2 = x + bar_w / 2
         y1 = y - bar_h / 2

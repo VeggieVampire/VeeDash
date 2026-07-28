@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0810";
+    private static final String APP_VERSION = "2026.07.28-0815";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2010,6 +2010,7 @@ public class MainActivity extends Activity {
                     if (g.has("mode")) gauge.mode = g.optString("mode", gauge.mode);
                     if (g.has("visible")) gauge.visible = g.optBoolean("visible", true);
                     if (g.has("layer")) gauge.layer = g.optInt("layer", gauge.layer);
+                    if (g.has("barThickness")) gauge.barThickness = clamp((float) g.optDouble("barThickness", gauge.barThickness), 0.08f, 0.50f);
                     if (g.has("imageAsset")) gauge.imageAsset = g.optString("imageAsset", "");
                     JSONObject reactive = g.optJSONObject("reactive");
                     if (reactive != null) {
@@ -2280,7 +2281,7 @@ public class MainActivity extends Activity {
         private void drawBarGauge(Canvas canvas, Gauge gauge, float cx, float cy, Float value, float valueForStyle) {
             float base = gauge.size * Math.min(getWidth(), getHeight()) * reactiveScale(gauge, valueForStyle);
             float barW = base * 2.15f;
-            float barH = Math.max(8f, base * 0.20f);
+            float barH = Math.max(6f, base * gauge.barThickness);
             float radius = barH / 2f;
             float lo = gauge.valueMin;
             float hi = gauge.valueMax <= lo ? lo + 1f : gauge.valueMax;
@@ -2624,6 +2625,7 @@ public class MainActivity extends Activity {
         float size;
         boolean visible;
         int layer = 20;
+        float barThickness = 0.20f;
         String imageAsset = "";
         String mode = "number";
         String loadedAsset = "";
