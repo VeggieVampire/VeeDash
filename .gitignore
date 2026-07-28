@@ -1,0 +1,25 @@
+.codex-remote-attachments/
+
+# Android / Gradle generated files
+work/VeeDash/.gradle/
+work/VeeDash/build/
+work/VeeDash/app/build/
+work/VeeDash/local.properties
+*.iml
+
+# Python generated files
+__pycache__/
+*.py[cod]
+outputs/__pycache__/
+
+# Runtime logs and machine-local connection state
+outputs/VeeDash-live-log.txt
+outputs/VeeDash-last-client.txt
+outputs/VeeDash-last-contact.txt
+outputs/VeeDash-last-config-served.txt
+
+# Duplicate/debug-named build artifact
+outputs/VeeDash-debug.apk
+
+# Temporary config snapshots
+outputs/*before*.json

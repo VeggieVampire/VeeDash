@@ -1,0 +1,1 @@
+New APK ready: version 2026.07.28-0620 adds live car DATA lines to the debug and WiFi logs about once per second.
