@@ -218,6 +218,7 @@ DEFAULT = {
     "runCommandOnConnect": False,
     "onlineCommand": "python --version",
     "obdSampleCommands": "0101\n03\n07\n0A\nATDPN\nATDP\n0902\n0904\n090A",
+    "obdSampleSeq": "",
     "nightBrightness": 0.40,
     "nightExtraDim": 0.22,
     "backgroundColor": "#000000",
@@ -350,6 +351,12 @@ def obd_sample_commands(data=None):
         if cmd:
             commands.append(cmd)
     return commands
+
+
+def obd_sample_seq(data=None):
+    if data is None:
+        data = load_config()
+    return str(data.get("obdSampleSeq", "") or data.get("updatedAt", "") or config_mtime())
 
 
 def local_ip():
@@ -569,7 +576,7 @@ class VeeDashHandler(BaseHTTPRequestHandler):
             self.send_json({
                 "app": "VeeDash",
                 "commands": obd_sample_commands(),
-                "seq": config_mtime(),
+                "seq": obd_sample_seq(),
                 "updatedAt": config_mtime(),
             })
             return
@@ -856,7 +863,7 @@ class Editor(tk.Tk):
         self.obd_samples_text = tk.Text(automation_tab, height=7, width=30)
         self.obd_samples_text.pack(fill=tk.X)
         self.obd_samples_text.insert("1.0", str(self.data.get("obdSampleCommands", DEFAULT["obdSampleCommands"])))
-        ttk.Button(automation_tab, text="Save OBD samples", command=self.save_obd_samples).pack(fill=tk.X, pady=4)
+        ttk.Button(automation_tab, text="Submit OBD samples now", command=self.save_obd_samples).pack(fill=tk.X, pady=4)
 
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -1232,8 +1239,9 @@ class Editor(tk.Tk):
 
     def save_obd_samples(self):
         self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
+        self.data["obdSampleSeq"] = datetime.now().isoformat(timespec="seconds")
         save_config(self.data)
-        self.info_text.set("OBD sample commands saved. Experiment-enabled dash will fetch and run the new sequence.")
+        self.info_text.set(f"OBD samples submitted at {self.data['obdSampleSeq']}. Experiment-enabled dash will run them.")
 
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()
