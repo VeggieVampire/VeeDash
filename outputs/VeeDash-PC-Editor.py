@@ -217,6 +217,7 @@ DEFAULT = {
     "autoDim": True,
     "runCommandOnConnect": False,
     "onlineCommand": "python --version",
+    "obdSampleCommands": "0101\n03\n07\n0A\nATDPN\nATDP\n0902\n0904\n090A",
     "nightBrightness": 0.40,
     "nightExtraDim": 0.22,
     "backgroundColor": "#000000",
@@ -337,6 +338,18 @@ def save_config(data):
 def ensure_config():
     if not CONFIG.exists():
         save_config(deep_default())
+
+
+def obd_sample_commands(data=None):
+    if data is None:
+        data = load_config()
+    text = str(data.get("obdSampleCommands", DEFAULT["obdSampleCommands"]))
+    commands = []
+    for line in text.splitlines():
+        cmd = line.split("#", 1)[0].strip().upper().replace(" ", "")
+        if cmd and cmd not in commands:
+            commands.append(cmd)
+    return commands
 
 
 def local_ip():
@@ -549,6 +562,15 @@ class VeeDashHandler(BaseHTTPRequestHandler):
             if not self.is_local_client():
                 stamp(LAST_CONFIG_SERVED, f"{now} served config to {self.client_address[0]} version={config_mtime()}")
             self.send_text(CONFIG.read_text(encoding="utf-8", errors="replace"), "application/json; charset=utf-8")
+            return
+        if route == "/obd-samples":
+            ensure_config()
+            note_dash_contact(self.client_address[0], "obd-samples")
+            self.send_json({
+                "app": "VeeDash",
+                "commands": obd_sample_commands(),
+                "updatedAt": config_mtime(),
+            })
             return
         if route == "/asset/background":
             path = background_asset_path()
@@ -828,6 +850,12 @@ class Editor(tk.Tk):
             self.command_output.insert("1.0", COMMAND_OUTPUT.read_text(encoding="utf-8", errors="replace"))
         else:
             self.command_output.insert("1.0", "Command output will appear here.")
+
+        ttk.Label(automation_tab, text="OBD sample commands for dash experiment").pack(anchor="w", pady=(12, 2))
+        self.obd_samples_text = tk.Text(automation_tab, height=7, width=30)
+        self.obd_samples_text.pack(fill=tk.X)
+        self.obd_samples_text.insert("1.0", str(self.data.get("obdSampleCommands", DEFAULT["obdSampleCommands"])))
+        ttk.Button(automation_tab, text="Save OBD samples", command=self.save_obd_samples).pack(fill=tk.X, pady=4)
 
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -1197,7 +1225,14 @@ class Editor(tk.Tk):
     def save_command_settings(self):
         self.data["runCommandOnConnect"] = bool(self.run_command_on_connect.get())
         self.data["onlineCommand"] = self.command_text.get("1.0", "end").strip()
+        if hasattr(self, "obd_samples_text"):
+            self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
         save_config(self.data)
+
+    def save_obd_samples(self):
+        self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
+        save_config(self.data)
+        self.info_text.set("OBD sample commands saved. Dash can fetch them from /obd-samples.")
 
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()
@@ -1243,6 +1278,8 @@ class Editor(tk.Tk):
             self.data["runCommandOnConnect"] = bool(self.run_command_on_connect.get())
         if hasattr(self, "command_text"):
             self.data["onlineCommand"] = self.command_text.get("1.0", "end").strip()
+        if hasattr(self, "obd_samples_text"):
+            self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
         save_config(self.data)
         if not silent:
             self.save_message()
