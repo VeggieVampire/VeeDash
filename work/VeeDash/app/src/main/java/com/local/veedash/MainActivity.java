@@ -71,7 +71,9 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -85,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0650";
+    private static final String APP_VERSION = "2026.07.28-0700";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -1818,6 +1820,12 @@ public class MainActivity extends Activity {
         private float backgroundDimAlpha = 0.80f;
         private boolean autoDimActive;
         private float autoDimAlpha;
+        private boolean clockVisible = true;
+        private float clockX = 0.82f;
+        private float clockY = 0.12f;
+        private float clockW = 0.24f;
+        private float clockH = 0.12f;
+        private String clockMode = "time";
         private Gauge active;
         private long lastTapTime;
         private Gauge lastTapGauge;
@@ -1909,6 +1917,19 @@ public class MainActivity extends Activity {
                         gauge.midColor = parseColor(reactive.optString("midColor", ""), gauge.midColor);
                         gauge.highColor = parseColor(reactive.optString("highColor", ""), gauge.highColor);
                     }
+                }
+            }
+            JSONArray overlays = json.optJSONArray("overlays");
+            if (overlays != null) {
+                for (int i = 0; i < overlays.length(); i++) {
+                    JSONObject overlay = overlays.optJSONObject(i);
+                    if (overlay == null || !"clock".equals(overlay.optString("key", ""))) continue;
+                    clockX = clamp((float) overlay.optDouble("x", clockX), 0.02f, 0.98f);
+                    clockY = clamp((float) overlay.optDouble("y", clockY), 0.06f, 0.96f);
+                    clockW = clamp((float) overlay.optDouble("w", clockW), 0.08f, 0.90f);
+                    clockH = clamp((float) overlay.optDouble("h", clockH), 0.06f, 0.70f);
+                    clockVisible = overlay.optBoolean("visible", clockVisible);
+                    clockMode = overlay.optString("mode", clockMode);
                 }
             }
             setBackgroundColor(backgroundColor);
@@ -2022,6 +2043,7 @@ public class MainActivity extends Activity {
             super.onDraw(canvas);
             drawBackground(canvas);
             for (Gauge gauge : gauges) drawGauge(canvas, gauge);
+            drawClock(canvas);
             drawAutoDim(canvas);
             if (editMode) drawEditHint(canvas);
         }
@@ -2115,6 +2137,53 @@ public class MainActivity extends Activity {
             canvas.drawText(text, x, y, paint);
             paint.clearShadowLayer();
             paint.setTypeface(Typeface.DEFAULT);
+        }
+
+        private void drawClock(Canvas canvas) {
+            if (!clockVisible) return;
+            float cx = clockX * getWidth();
+            float cy = clockY * getHeight();
+            float w = clockW * getWidth();
+            float h = clockH * getHeight();
+            RectF box = new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(alphaColor(0x06141d, 0xcc));
+            canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(2f, h * 0.035f));
+            paint.setColor(accentColor);
+            canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+
+            String[] lines = clockLines();
+            float primarySize = Math.max(16f, h * (lines[1].isEmpty() ? 0.50f : 0.42f));
+            float primaryY = lines[1].isEmpty() ? cy + primarySize * 0.34f : cy - h * 0.02f;
+            drawOutlinedText(canvas, lines[0], cx, primaryY, primarySize, Color.WHITE, primarySize * 0.08f);
+            if (!lines[1].isEmpty()) {
+                drawOutlinedText(canvas, lines[1], cx, cy + h * 0.32f, Math.max(10f, h * 0.17f), 0xffd8f6ff, h * 0.01f);
+            }
+            postInvalidateDelayed("seconds".equals(clockMode) ? 250 : 15000);
+        }
+
+        private String[] clockLines() {
+            Date now = new Date();
+            if ("time_date".equals(clockMode)) {
+                return new String[] { formatClock("h:mm", now), formatClock("EEE MMM d", now) };
+            }
+            if ("date".equals(clockMode)) {
+                return new String[] { formatClock("MMM d", now), formatClock("yyyy", now) };
+            }
+            if ("seconds".equals(clockMode)) {
+                return new String[] { formatClock("h:mm:ss", now), formatClock("a", now) };
+            }
+            if ("compact".equals(clockMode)) {
+                return new String[] { formatClock("HHmm", now), "" };
+            }
+            return new String[] { formatClock("h:mm", now), formatClock("a", now) };
+        }
+
+        private String formatClock(String pattern, Date date) {
+            return new SimpleDateFormat(pattern, Locale.US).format(date);
         }
 
         private void drawGraph(Canvas canvas, Gauge gauge, float cx, float cy, float r, boolean compact) {

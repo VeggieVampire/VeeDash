@@ -182,6 +182,7 @@ DEFAULT = {
     "overlays": [
         {"key": "chat", "x": 0.80, "y": 0.83, "w": 0.28, "h": 0.18, "visible": True, "layer": 80},
         {"key": "log", "x": 0.30, "y": 0.30, "w": 0.52, "h": 0.36, "visible": True, "layer": 70},
+        {"key": "clock", "x": 0.82, "y": 0.12, "w": 0.24, "h": 0.12, "visible": True, "layer": 60, "mode": "time"},
     ],
 }
 
@@ -226,6 +227,8 @@ def normalize(data):
     for default_o in DEFAULT["overlays"]:
         o = dict(default_o)
         o.update(existing_o.get(o["key"], {}))
+        if o["key"] == "clock":
+            o.setdefault("mode", "time")
         data["overlays"].append(o)
 
 
@@ -684,7 +687,7 @@ class Editor(tk.Tk):
         ttk.Label(right, text="Drag items to move. Drag the small white corner handle to resize. Dial images/GIFs are staged to the dash and clipped to fill the whole dial.").pack(anchor="w")
 
     def item_keys(self):
-        return GAUGE_KEYS + ["chat", "log"]
+        return GAUGE_KEYS + ["chat", "log", "clock"]
 
     def item(self, key=None):
         key = key or self.selected.get()
@@ -698,8 +701,15 @@ class Editor(tk.Tk):
 
     def load_selected(self):
         item, kind = self.item()
-        self.mode_box.configure(state="readonly" if kind == "gauge" else "disabled")
-        self.mode.set(item.get("mode", "number") if kind == "gauge" else "number")
+        if kind == "gauge":
+            self.mode_box.configure(values=["number", "graph", "both", "ring", "bar"], state="readonly")
+            self.mode.set(item.get("mode", "number"))
+        elif item.get("key") == "clock":
+            self.mode_box.configure(values=["time", "time_date", "date", "seconds", "compact"], state="readonly")
+            self.mode.set(item.get("mode", "time"))
+        else:
+            self.mode_box.configure(state="disabled")
+            self.mode.set("number")
         self.vars["x"].set(item.get("x", 0.5))
         self.vars["y"].set(item.get("y", 0.5))
         self.vars["size"].set(item.get("size", item.get("w", 0.22)))
@@ -729,6 +739,8 @@ class Editor(tk.Tk):
         else:
             item["w"] = round(self.vars["size"].get(), 3)
             item["h"] = round(max(0.10, self.vars["size"].get() * 0.55), 3)
+            if item.get("key") == "clock":
+                item["mode"] = self.mode.get()
         self.data["showLog"] = bool(self.show_log.get())
         self.data["showChat"] = bool(self.show_chat.get())
         self.data["chatPopupSeconds"] = round(max(2.0, min(15.0, float(self.chat_popup_seconds.get()))), 1)
@@ -1116,6 +1128,8 @@ class Editor(tk.Tk):
                 self.draw_box(item, w, h, "STATUS\nConnected\n\nCHAT\nMessage from PC", chat_fill)
             elif item["key"] == "log" and self.data.get("showLog", True):
                 self.draw_box(item, w, h, "DEBUG STATUS\nphase: connected\nrpm: 820\nvolts: 14.2", log_fill)
+            elif item["key"] == "clock":
+                self.draw_clock(item, w, h, chat_fill, accent)
 
     def blend(self, fg, alpha, bg):
         try:
@@ -1143,6 +1157,37 @@ class Editor(tk.Tk):
         outline = "#ffffff" if item["key"] == self.selected.get() else "#345"
         self.canvas.create_rectangle(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2, fill=color, outline=outline, width=2)
         self.canvas.create_text(cx - iw / 2 + 10, cy - ih / 2 + 8, text=text, anchor="nw", fill="white", font=("Segoe UI", 9, "bold"))
+        if item["key"] == self.selected.get():
+            hx, hy = self.resize_handle(item, "overlay", w, h)
+            self.canvas.create_rectangle(hx - 6, hy - 6, hx + 6, hy + 6, fill="#ffffff", outline="#111111")
+
+    def draw_clock(self, item, w, h, color, accent):
+        cx = item.get("x", 0.5) * w
+        cy = item.get("y", 0.5) * h
+        iw = item.get("w", 0.24) * w
+        ih = item.get("h", 0.12) * h
+        mode = item.get("mode", "time")
+        now = datetime.now()
+        if mode == "time_date":
+            primary = now.strftime("%I:%M").lstrip("0")
+            secondary = now.strftime("%a %b %d")
+        elif mode == "date":
+            primary = now.strftime("%b %d")
+            secondary = now.strftime("%Y")
+        elif mode == "seconds":
+            primary = now.strftime("%I:%M:%S").lstrip("0")
+            secondary = now.strftime("%p")
+        elif mode == "compact":
+            primary = now.strftime("%H%M")
+            secondary = ""
+        else:
+            primary = now.strftime("%I:%M").lstrip("0")
+            secondary = now.strftime("%p")
+        outline = "#ffffff" if item["key"] == self.selected.get() else "#345"
+        self.canvas.create_rectangle(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2, fill=color, outline=outline, width=2)
+        self.canvas.create_text(cx, cy - ih * 0.04, text=primary, anchor="center", fill="white", font=("Segoe UI", int(max(14, ih * 0.38)), "bold"))
+        if secondary:
+            self.canvas.create_text(cx, cy + ih * 0.30, text=secondary, anchor="center", fill=accent, font=("Segoe UI", int(max(8, ih * 0.16)), "bold"))
         if item["key"] == self.selected.get():
             hx, hy = self.resize_handle(item, "overlay", w, h)
             self.canvas.create_rectangle(hx - 6, hy - 6, hx + 6, hy + 6, fill="#ffffff", outline="#111111")
