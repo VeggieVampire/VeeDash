@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0755";
+    private static final String APP_VERSION = "2026.07.28-0805";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -156,6 +156,7 @@ public class MainActivity extends Activity {
     private boolean discoveringPcServer = false;
     private String coachStatus = "Not connected";
     private String coachMessage = "Open VeeDash, tap Scan, pick VEEPEAK, then tap AutoTry.";
+    private final List<String> activePollPids = new ArrayList<>();
 
     private final Runnable hideControlsRunnable = new Runnable() {
         @Override public void run() {
@@ -1083,6 +1084,7 @@ public class MainActivity extends Activity {
             if (json.has("chatAlpha")) coachView.setBackgroundColor(alphaColor(0x06141d, json.optDouble("chatAlpha", 0.86)));
             if (json.has("configAlpha")) configPanel.setBackgroundColor(alphaColor(0x101820, json.optDouble("configAlpha", 0.93)));
             dashboard.applyConfig(json);
+            updateActivePollPids(json);
             addDiag("Config visual state: " + dashboard.configSummary());
             if (!backgroundAsset.isEmpty() && !backgroundAsset.equals(lastBackgroundAsset)) {
                 fetchRemoteBackground(backgroundAsset);
@@ -1104,6 +1106,62 @@ public class MainActivity extends Activity {
         } catch (Exception ex) {
             addDiag("Config parse failed: " + ex.getMessage());
         }
+    }
+
+    private void updateActivePollPids(JSONObject config) {
+        ArrayList<String> next = new ArrayList<>();
+        JSONArray gauges = config.optJSONArray("gauges");
+        if (gauges != null) {
+            for (int i = 0; i < gauges.length(); i++) {
+                JSONObject gauge = gauges.optJSONObject(i);
+                if (gauge == null || !gauge.optBoolean("visible", true)) continue;
+                String pid = normalizePollPid(gauge.optString("pid", gauge.optString("key", "")));
+                if (!pid.isEmpty() && !next.contains(pid)) next.add(pid);
+            }
+        }
+        if (next.isEmpty()) {
+            next.add("rpm");
+            next.add("speed");
+            next.add("coolant");
+            next.add("volts");
+            next.add("load");
+            next.add("throttle");
+        }
+        synchronized (activePollPids) {
+            activePollPids.clear();
+            activePollPids.addAll(next);
+        }
+        addDiag("Polling PIDs: " + next.toString());
+    }
+
+    private List<String> currentPollPids() {
+        synchronized (activePollPids) {
+            if (activePollPids.isEmpty()) {
+                ArrayList<String> defaults = new ArrayList<>();
+                defaults.add("rpm");
+                defaults.add("speed");
+                defaults.add("coolant");
+                defaults.add("volts");
+                defaults.add("load");
+                defaults.add("throttle");
+                return defaults;
+            }
+            return new ArrayList<>(activePollPids);
+        }
+    }
+
+    private static String normalizePollPid(String value) {
+        if (value == null) return "";
+        String key = value.trim().toLowerCase(Locale.US).replace(" ", "");
+        if (key.startsWith("rpm") || "010c".equals(key)) return "rpm";
+        if (key.startsWith("speed") || "010d".equals(key)) return "speed";
+        if (key.startsWith("coolant") || "0105".equals(key)) return "coolant";
+        if (key.startsWith("volts") || "0142".equals(key)) return "volts";
+        if (key.startsWith("load") || "0104".equals(key)) return "load";
+        if (key.startsWith("throttle") || "0111".equals(key)) return "throttle";
+        String compact = key.toUpperCase(Locale.US).replaceAll("[^0-9A-F]", "");
+        if (compact.length() == 2) compact = "01" + compact;
+        return compact.matches("01[0-9A-F]{2}") ? compact : "";
     }
 
     private boolean applyViewOverlay(JSONObject config, String type, View view, float defaultX, float defaultY, float defaultW, float defaultH) {
@@ -1530,8 +1588,8 @@ public class MainActivity extends Activity {
             }
         };
         obdSession = selectedDevice.ble
-                ? new BleObdSession(this, selectedDevice.device, listener, this::addDiag)
-                : new ObdSession(selectedDevice.device, listener, this::addDiag, selectedPin, forceAutoTry);
+                ? new BleObdSession(this, selectedDevice.device, listener, this::addDiag, this::currentPollPids)
+                : new ObdSession(selectedDevice.device, listener, this::addDiag, selectedPin, forceAutoTry, this::currentPollPids);
         obdSession.start();
     }
 
@@ -1552,6 +1610,16 @@ public class MainActivity extends Activity {
         appendDataValue(out, values, "volts", "volts", "%.1f");
         appendDataValue(out, values, "load", "load", "%.0f");
         appendDataValue(out, values, "throttle", "throttle", "%.0f");
+        for (Map.Entry<String, Float> entry : values.entrySet()) {
+            String key = entry.getKey();
+            if ("rpm".equals(key) || "speed".equals(key) || "speedKph".equals(key)
+                    || "coolant".equals(key) || "volts".equals(key)
+                    || "load".equals(key) || "throttle".equals(key)) continue;
+            out.append(' ')
+                    .append(key)
+                    .append('=')
+                    .append(String.format(Locale.US, "%.1f", entry.getValue()));
+        }
         return out.toString();
     }
 
@@ -2064,7 +2132,7 @@ public class MainActivity extends Activity {
             if (key.startsWith("volts")) return "volts";
             if (key.startsWith("load")) return "load";
             if (key.startsWith("throttle")) return "throttle";
-            return key.isEmpty() ? "rpm" : key;
+            return normalizePollPid(key);
         }
 
         private String defaultGaugeLabel(String pid) {
@@ -2074,6 +2142,18 @@ public class MainActivity extends Activity {
             if ("volts".equals(pid)) return "Volts";
             if ("load".equals(pid)) return "Load";
             if ("throttle".equals(pid)) return "Throttle";
+            if ("0101".equals(pid)) return "Monitor";
+            if ("0103".equals(pid)) return "Fuel Sys";
+            if ("0106".equals(pid)) return "STFT B1";
+            if ("0107".equals(pid)) return "LTFT B1";
+            if ("010B".equals(pid)) return "MAP";
+            if ("010E".equals(pid)) return "Timing";
+            if ("010F".equals(pid)) return "IAT";
+            if ("0113".equals(pid)) return "O2 Present";
+            if ("0115".equals(pid)) return "O2 S2";
+            if ("011C".equals(pid)) return "OBD Std";
+            if ("011F".equals(pid)) return "Run Time";
+            if ("0120".equals(pid)) return "PIDs 21-40";
             return pid == null ? "" : pid.toUpperCase(Locale.US);
         }
 
@@ -2405,6 +2485,8 @@ public class MainActivity extends Activity {
 
         private String formatValue(String pid, float value) {
             if ("volts".equals(pid)) return String.format(Locale.US, "%.1f", value);
+            if ("0106".equals(pid) || "0107".equals(pid) || "0115".equals(pid)) return String.format(Locale.US, "%.1f", value);
+            if ("010E".equals(pid)) return String.format(Locale.US, "%.1f", value);
             return String.format(Locale.US, "%.0f", value);
         }
 
@@ -2587,11 +2669,16 @@ public class MainActivity extends Activity {
         void log(String line);
     }
 
+    private interface PollPidSource {
+        List<String> pids();
+    }
+
     private static class ObdSession extends Thread implements ObdLink {
         private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
         private final BluetoothDevice device;
         private final ObdLink.Listener listener;
         private final DiagSink diag;
+        private final PollPidSource pollPidSource;
         private final String selectedPin;
         private final boolean autoTry;
         private BluetoothSocket socket;
@@ -2599,12 +2686,13 @@ public class MainActivity extends Activity {
         private OutputStream output;
         private volatile boolean running = true;
 
-        ObdSession(BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, String selectedPin, boolean autoTry) {
+        ObdSession(BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, String selectedPin, boolean autoTry, PollPidSource pollPidSource) {
             this.device = device;
             this.listener = listener;
             this.diag = diag;
             this.selectedPin = selectedPin;
             this.autoTry = autoTry;
+            this.pollPidSource = pollPidSource;
         }
 
         @Override
@@ -2814,13 +2902,20 @@ public class MainActivity extends Activity {
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
             Map<String, Float> out = new LinkedHashMap<>();
-            parseRpm(command("010C", 260), out);
-            parseSpeed(command("010D", 220), out);
-            parseByte("coolant", command("0105", 220), out, -40, 1);
-            parseVolts(command("0142", 240), out);
-            parseByte("load", command("0104", 220), out, 0, 100f / 255f);
-            parseByte("throttle", command("0111", 220), out, 0, 100f / 255f);
+            for (String pid : pollPidSource.pids()) {
+                pollOne(pid, out, 260);
+            }
             return out;
+        }
+
+        private void pollOne(String pid, Map<String, Float> out, long waitMs) throws IOException, InterruptedException {
+            if ("rpm".equals(pid)) parseRpm(command("010C", waitMs), out);
+            else if ("speed".equals(pid)) parseSpeed(command("010D", waitMs), out);
+            else if ("coolant".equals(pid)) parseMode01("coolant", command("0105", waitMs), out, -40f, 1f);
+            else if ("volts".equals(pid)) parseVolts(command("0142", waitMs), out);
+            else if ("load".equals(pid)) parseMode01("load", command("0104", waitMs), out, 0f, 100f / 255f);
+            else if ("throttle".equals(pid)) parseMode01("throttle", command("0111", waitMs), out, 0f, 100f / 255f);
+            else parseGenericPid(pid, command(pid, waitMs), out);
         }
 
         private String command(String text, long waitMs) throws IOException, InterruptedException {
@@ -2854,13 +2949,21 @@ public class MainActivity extends Activity {
 
         private void parseRpm(String raw, Map<String, Float> out) {
             int[] bytes = payload(raw, "410C", 2);
-            if (bytes != null) out.put("rpm", ((bytes[0] * 256f) + bytes[1]) / 4f);
+            if (bytes != null) {
+                float value = ((bytes[0] * 256f) + bytes[1]) / 4f;
+                out.put("rpm", value);
+                out.put("010C", value);
+            }
         }
 
-        private void parseByte(String key, String raw, Map<String, Float> out, float offset, float scale) {
-            String pid = key.equals("speed") ? "410D" : key.equals("coolant") ? "4105" : key.equals("load") ? "4104" : "4111";
-            int[] bytes = payload(raw, pid, 1);
-            if (bytes != null) out.put(key, offset + bytes[0] * scale);
+        private void parseMode01(String key, String raw, Map<String, Float> out, float offset, float scale) {
+            String header = "41" + commandPidForKey(key);
+            int[] bytes = payload(raw, header, 1);
+            if (bytes != null) {
+                float value = offset + bytes[0] * scale;
+                out.put(key, value);
+                out.put(headerToConfigPid(header), value);
+            }
         }
 
         private void parseSpeed(String raw, Map<String, Float> out) {
@@ -2868,12 +2971,55 @@ public class MainActivity extends Activity {
             if (bytes != null) {
                 out.put("speedKph", (float) bytes[0]);
                 out.put("speed", bytes[0] * 0.621371f);
+                out.put("010D", bytes[0] * 0.621371f);
             }
         }
 
         private void parseVolts(String raw, Map<String, Float> out) {
             int[] bytes = payload(raw, "4142", 2);
-            if (bytes != null) out.put("volts", ((bytes[0] * 256f) + bytes[1]) / 1000f);
+            if (bytes != null) {
+                float value = ((bytes[0] * 256f) + bytes[1]) / 1000f;
+                out.put("volts", value);
+                out.put("0142", value);
+            }
+        }
+
+        private void parseGenericPid(String pid, String raw, Map<String, Float> out) {
+            String command = normalizeCommandPid(pid);
+            if (command.isEmpty()) return;
+            int[] bytes = payload(raw, "41" + command.substring(2), 4);
+            if (bytes == null) bytes = payload(raw, "41" + command.substring(2), 1);
+            if (bytes == null || bytes.length == 0) return;
+            float value = bytes[0];
+            if ("0103".equals(command) && bytes.length >= 2) value = bytes[0] * 256f + bytes[1];
+            else if ("0106".equals(command) || "0107".equals(command)) value = (bytes[0] - 128f) * 100f / 128f;
+            else if ("010B".equals(command)) value = bytes[0];
+            else if ("010E".equals(command)) value = bytes[0] / 2f - 64f;
+            else if ("010F".equals(command)) value = bytes[0] - 40f;
+            else if ("0115".equals(command) && bytes.length >= 2) value = bytes[1] * 100f / 128f - 100f;
+            else if ("011F".equals(command) && bytes.length >= 2) value = bytes[0] * 256f + bytes[1];
+            out.put(command, value);
+        }
+
+        private String commandPidForKey(String key) {
+            if ("coolant".equals(key)) return "05";
+            if ("load".equals(key)) return "04";
+            if ("throttle".equals(key)) return "11";
+            return "00";
+        }
+
+        private String headerToConfigPid(String header) {
+            if ("4105".equals(header)) return "0105";
+            if ("4104".equals(header)) return "0104";
+            if ("4111".equals(header)) return "0111";
+            return header;
+        }
+
+        private String normalizeCommandPid(String pid) {
+            if (pid == null) return "";
+            String compact = pid.toUpperCase(Locale.US).replaceAll("[^0-9A-F]", "");
+            if (compact.length() == 2) compact = "01" + compact;
+            return compact.matches("01[0-9A-F]{2}") ? compact : "";
         }
 
         private int[] payload(String raw, String header, int count) {
@@ -2896,6 +3042,7 @@ public class MainActivity extends Activity {
         private final BluetoothDevice device;
         private final ObdLink.Listener listener;
         private final DiagSink diag;
+        private final PollPidSource pollPidSource;
         private final Object lock = new Object();
         private BluetoothGatt gatt;
         private BluetoothGattCharacteristic writeChar;
@@ -2904,11 +3051,12 @@ public class MainActivity extends Activity {
         private volatile boolean running = true;
         private volatile boolean ready;
 
-        BleObdSession(Context context, BluetoothDevice device, ObdLink.Listener listener, DiagSink diag) {
+        BleObdSession(Context context, BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, PollPidSource pollPidSource) {
             this.context = context.getApplicationContext();
             this.device = device;
             this.listener = listener;
             this.diag = diag;
+            this.pollPidSource = pollPidSource;
         }
 
         @Override
@@ -3083,13 +3231,20 @@ public class MainActivity extends Activity {
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
             Map<String, Float> out = new LinkedHashMap<>();
-            parseRpm(command("010C", 360), out);
-            parseSpeed(command("010D", 320), out);
-            parseByte("coolant", command("0105", 320), out, -40, 1);
-            parseVolts(command("0142", 340), out);
-            parseByte("load", command("0104", 320), out, 0, 100f / 255f);
-            parseByte("throttle", command("0111", 320), out, 0, 100f / 255f);
+            for (String pid : pollPidSource.pids()) {
+                pollOne(pid, out, 340);
+            }
             return out;
+        }
+
+        private void pollOne(String pid, Map<String, Float> out, long waitMs) throws IOException, InterruptedException {
+            if ("rpm".equals(pid)) parseRpm(command("010C", waitMs), out);
+            else if ("speed".equals(pid)) parseSpeed(command("010D", waitMs), out);
+            else if ("coolant".equals(pid)) parseMode01("coolant", command("0105", waitMs), out, -40f, 1f);
+            else if ("volts".equals(pid)) parseVolts(command("0142", waitMs), out);
+            else if ("load".equals(pid)) parseMode01("load", command("0104", waitMs), out, 0f, 100f / 255f);
+            else if ("throttle".equals(pid)) parseMode01("throttle", command("0111", waitMs), out, 0f, 100f / 255f);
+            else parseGenericPid(pid, command(pid, waitMs), out);
         }
 
         private String command(String text, long waitMs) throws IOException, InterruptedException {
@@ -3129,13 +3284,21 @@ public class MainActivity extends Activity {
 
         private void parseRpm(String raw, Map<String, Float> out) {
             int[] bytes = payload(raw, "410C", 2);
-            if (bytes != null) out.put("rpm", ((bytes[0] * 256f) + bytes[1]) / 4f);
+            if (bytes != null) {
+                float value = ((bytes[0] * 256f) + bytes[1]) / 4f;
+                out.put("rpm", value);
+                out.put("010C", value);
+            }
         }
 
-        private void parseByte(String key, String raw, Map<String, Float> out, float offset, float scale) {
-            String pid = key.equals("speed") ? "410D" : key.equals("coolant") ? "4105" : key.equals("load") ? "4104" : "4111";
-            int[] bytes = payload(raw, pid, 1);
-            if (bytes != null) out.put(key, offset + bytes[0] * scale);
+        private void parseMode01(String key, String raw, Map<String, Float> out, float offset, float scale) {
+            String header = "41" + commandPidForKey(key);
+            int[] bytes = payload(raw, header, 1);
+            if (bytes != null) {
+                float value = offset + bytes[0] * scale;
+                out.put(key, value);
+                out.put(headerToConfigPid(header), value);
+            }
         }
 
         private void parseSpeed(String raw, Map<String, Float> out) {
@@ -3143,12 +3306,55 @@ public class MainActivity extends Activity {
             if (bytes != null) {
                 out.put("speedKph", (float) bytes[0]);
                 out.put("speed", bytes[0] * 0.621371f);
+                out.put("010D", bytes[0] * 0.621371f);
             }
         }
 
         private void parseVolts(String raw, Map<String, Float> out) {
             int[] bytes = payload(raw, "4142", 2);
-            if (bytes != null) out.put("volts", ((bytes[0] * 256f) + bytes[1]) / 1000f);
+            if (bytes != null) {
+                float value = ((bytes[0] * 256f) + bytes[1]) / 1000f;
+                out.put("volts", value);
+                out.put("0142", value);
+            }
+        }
+
+        private void parseGenericPid(String pid, String raw, Map<String, Float> out) {
+            String command = normalizeCommandPid(pid);
+            if (command.isEmpty()) return;
+            int[] bytes = payload(raw, "41" + command.substring(2), 4);
+            if (bytes == null) bytes = payload(raw, "41" + command.substring(2), 1);
+            if (bytes == null || bytes.length == 0) return;
+            float value = bytes[0];
+            if ("0103".equals(command) && bytes.length >= 2) value = bytes[0] * 256f + bytes[1];
+            else if ("0106".equals(command) || "0107".equals(command)) value = (bytes[0] - 128f) * 100f / 128f;
+            else if ("010B".equals(command)) value = bytes[0];
+            else if ("010E".equals(command)) value = bytes[0] / 2f - 64f;
+            else if ("010F".equals(command)) value = bytes[0] - 40f;
+            else if ("0115".equals(command) && bytes.length >= 2) value = bytes[1] * 100f / 128f - 100f;
+            else if ("011F".equals(command) && bytes.length >= 2) value = bytes[0] * 256f + bytes[1];
+            out.put(command, value);
+        }
+
+        private String commandPidForKey(String key) {
+            if ("coolant".equals(key)) return "05";
+            if ("load".equals(key)) return "04";
+            if ("throttle".equals(key)) return "11";
+            return "00";
+        }
+
+        private String headerToConfigPid(String header) {
+            if ("4105".equals(header)) return "0105";
+            if ("4104".equals(header)) return "0104";
+            if ("4111".equals(header)) return "0111";
+            return header;
+        }
+
+        private String normalizeCommandPid(String pid) {
+            if (pid == null) return "";
+            String compact = pid.toUpperCase(Locale.US).replaceAll("[^0-9A-F]", "");
+            if (compact.length() == 2) compact = "01" + compact;
+            return compact.matches("01[0-9A-F]{2}") ? compact : "";
         }
 
         private int[] payload(String raw, String header, int count) {

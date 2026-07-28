@@ -140,6 +140,26 @@ WELCOME_MESSAGES = [
 ]
 
 GAUGE_KEYS = ["rpm", "speed", "coolant", "volts", "load", "throttle"]
+PID_CATALOG = [
+    ("0101", "Monitor status"),
+    ("0103", "Fuel system status"),
+    ("load", "Engine load - 0104"),
+    ("coolant", "Coolant temp - 0105"),
+    ("0106", "Short-term fuel trim bank 1"),
+    ("0107", "Long-term fuel trim bank 1"),
+    ("010B", "Intake manifold pressure"),
+    ("rpm", "RPM - 010C"),
+    ("speed", "Vehicle speed - 010D"),
+    ("010E", "Timing advance"),
+    ("010F", "Intake air temp"),
+    ("throttle", "Throttle position - 0111"),
+    ("0113", "Oxygen sensors present"),
+    ("0115", "O2 sensor 2 data"),
+    ("011C", "OBD standards / protocol type"),
+    ("011F", "Run time since engine start"),
+    ("0120", "Supported PIDs 21-40"),
+    ("volts", "Control module voltage - 0142"),
+]
 GAUGE_LABELS = {
     "rpm": "RPM",
     "speed": "MPH",
@@ -147,6 +167,18 @@ GAUGE_LABELS = {
     "volts": "Volts",
     "load": "Load",
     "throttle": "Throttle",
+    "0101": "Monitor",
+    "0103": "Fuel Sys",
+    "0106": "STFT B1",
+    "0107": "LTFT B1",
+    "010B": "MAP",
+    "010E": "Timing",
+    "010F": "IAT",
+    "0113": "O2 Present",
+    "0115": "O2 S2",
+    "011C": "OBD Std",
+    "011F": "Run Time",
+    "0120": "PIDs 21-40",
 }
 AUTO_TINT_PRESETS = {
     "rpm": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 6500, "scaleMax": 1.25, "midAt": 3500, "highAt": 5500, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
@@ -162,6 +194,18 @@ SAMPLE = {
     "volts": 14.2,
     "load": 31,
     "throttle": 14,
+    "0101": 128,
+    "0103": 2,
+    "0106": -1.6,
+    "0107": 0.8,
+    "010B": 38,
+    "010E": 8,
+    "010F": 34,
+    "0113": 2,
+    "0115": 1.2,
+    "011C": 6,
+    "011F": 530,
+    "0120": 190,
 }
 
 DEFAULT = {
@@ -207,6 +251,28 @@ def deep_default():
     return json.loads(json.dumps(DEFAULT))
 
 
+def normalize_pid_static(value):
+    pid = (value or "").strip().lower().replace(" ", "")
+    aliases = {
+        "0104": "load",
+        "0105": "coolant",
+        "010c": "rpm",
+        "010d": "speed",
+        "0111": "throttle",
+        "0142": "volts",
+    }
+    if pid in aliases:
+        return aliases[pid]
+    if pid in GAUGE_KEYS or pid in {key for key, _label in PID_CATALOG}:
+        return pid
+    compact = re.sub(r"[^0-9a-fA-F]", "", pid).upper()
+    if len(compact) == 2:
+        compact = "01" + compact
+    if re.fullmatch(r"01[0-9A-F]{2}", compact):
+        return compact
+    return "rpm"
+
+
 def load_config():
     data = deep_default()
     if CONFIG.exists():
@@ -230,6 +296,7 @@ def normalize(data):
     data["gauges"] = []
     for index, source in enumerate(source_gauges):
         pid = source.get("pid", source.get("key", DEFAULT["gauges"][0]["key"]))
+        pid = normalize_pid_static(pid)
         default_g = next((item for item in DEFAULT["gauges"] if item["key"] == pid), DEFAULT["gauges"][0])
         g = dict(default_g)
         g.update(source)
@@ -645,7 +712,7 @@ class Editor(tk.Tk):
         self.label_entry.bind("<FocusOut>", lambda _e: self.changed())
 
         ttk.Label(item_tab, text="Data source").pack(anchor="w")
-        self.pid_box = ttk.Combobox(item_tab, textvariable=self.item_pid, values=self.data_source_labels(), state="readonly")
+        self.pid_box = ttk.Combobox(item_tab, textvariable=self.item_pid, values=self.data_source_labels(), state="normal")
         self.pid_box.pack(fill=tk.X, pady=(0, 8))
         self.pid_box.bind("<<ComboboxSelected>>", lambda _e: self.changed())
 
@@ -763,16 +830,22 @@ class Editor(tk.Tk):
         return [g["key"] for g in self.data["gauges"]] + [o["key"] for o in self.data["overlays"]]
 
     def data_source_labels(self):
-        return [f"{GAUGE_LABELS.get(key, key.upper())} ({key})" for key in GAUGE_KEYS]
+        return [f"{label} ({key})" for key, label in PID_CATALOG]
 
     def label_to_pid(self, label):
         match = re.search(r"\(([^)]+)\)\s*$", label or "")
         pid = match.group(1).strip().lower() if match else (label or "").strip().lower()
-        return pid if pid in GAUGE_KEYS else "rpm"
+        return self.normalize_pid_value(pid)
 
     def pid_to_label(self, pid):
-        pid = pid if pid in GAUGE_KEYS else "rpm"
-        return f"{GAUGE_LABELS.get(pid, pid.upper())} ({pid})"
+        pid = self.normalize_pid_value(pid)
+        for key, label in PID_CATALOG:
+            if key == pid:
+                return f"{label} ({key})"
+        return pid.upper()
+
+    def normalize_pid_value(self, value):
+        return normalize_pid_static(value)
 
     def item(self, key=None):
         key = key or self.selected.get()
@@ -797,7 +870,7 @@ class Editor(tk.Tk):
             self.item_label.set(item.get("label", GAUGE_LABELS.get(pid, pid.upper())))
             self.item_pid.set(self.pid_to_label(pid))
             self.label_entry.configure(state="normal")
-            self.pid_box.configure(state="readonly")
+            self.pid_box.configure(state="normal")
             self.mode_box.configure(values=["number", "graph", "both", "ring", "bar"], state="readonly")
             self.mode.set(item.get("mode", "number"))
         elif item.get("type", item.get("key")) == "clock":
@@ -1016,7 +1089,7 @@ class Editor(tk.Tk):
     def add_gauge(self):
         current, kind = self.item()
         default_pid = current.get("pid", current.get("key", "rpm")) if kind == "gauge" else "rpm"
-        default_pid = default_pid if default_pid in GAUGE_KEYS else "rpm"
+        default_pid = self.normalize_pid_value(default_pid)
         details = self.ask_gauge_details(default_pid)
         if not details:
             return
@@ -1051,7 +1124,7 @@ class Editor(tk.Tk):
         name_entry = ttk.Entry(frame, textvariable=name_var, width=34)
         name_entry.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(frame, text="Data source").pack(anchor="w")
-        pid_box = ttk.Combobox(frame, textvariable=pid_var, values=self.data_source_labels(), state="readonly", width=34)
+        pid_box = ttk.Combobox(frame, textvariable=pid_var, values=self.data_source_labels(), state="normal", width=34)
         pid_box.pack(fill=tk.X, pady=(0, 12))
 
         buttons = ttk.Frame(frame)
