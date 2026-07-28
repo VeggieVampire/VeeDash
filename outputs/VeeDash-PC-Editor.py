@@ -624,6 +624,8 @@ class Editor(tk.Tk):
         self.gif_index = 0
         self.gif_last = 0
         self.command_output_mtime = 0
+        self.pending_push_time = 0
+        self.pending_push_target = ""
         self.server_address = tk.StringVar(value="")
         self.dash_client_ip = tk.StringVar(value=str(self.data.get("dashClientIp", "")))
         self.info_text = tk.StringVar(value="Starting editor server.")
@@ -1256,7 +1258,9 @@ class Editor(tk.Tk):
         MESSAGE.write_text(wire_message, encoding="utf-8")
         self.message.delete("1.0", "end")
         self.message.insert("1.0", message)
-        self.info_text.set("Push sent. Dash chat will command an immediate config pull.")
+        self.pending_push_time = time.time()
+        self.pending_push_target = self.dash_client_ip.get().strip() or self.last_client_ip()
+        self.info_text.set("Push sent. Waiting for the dash to pull the newest config.")
 
     def save_network_fields(self):
         self.data["dashClientIp"] = self.dash_client_ip.get().strip()
@@ -1401,8 +1405,18 @@ class Editor(tk.Tk):
         served_time = file_mtime(LAST_CONFIG_SERVED)
         contact = self.marker_text(LAST_CONTACT)
         served = self.marker_text(LAST_CONFIG_SERVED)
-        if self.http_server and target_ip and served_time >= config_time and served:
-            self.info_text.set(f"Sent the newest dashboard to {target_ip}. Waiting for the next edit or dash pull.")
+        if self.pending_push_time:
+            wait_target = self.pending_push_target or target_ip or last_ip or "dash"
+            if self.http_server and served_time >= self.pending_push_time and served:
+                self.info_text.set(f"Dash received the pushed config: {served}")
+                self.pending_push_time = 0
+                self.pending_push_target = ""
+            elif self.http_server:
+                self.info_text.set(f"Push queued for {wait_target}. Waiting for the dash to pull /config.")
+            else:
+                self.info_text.set("Push queued, but the server is not running.")
+        elif self.http_server and target_ip and served_time >= config_time and served:
+            self.info_text.set(f"Dash has the newest dashboard: {served}")
         elif self.http_server and target_ip and contact:
             self.info_text.set(f"Connected to dash at {target_ip}. The next config pull will receive the staged dashboard.")
         elif self.http_server and target_ip:

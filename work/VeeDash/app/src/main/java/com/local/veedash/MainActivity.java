@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0900";
+    private static final String APP_VERSION = "2026.07.28-0915";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -261,7 +261,7 @@ public class MainActivity extends Activity {
         deviceSpinner = new Spinner(this);
         deviceSpinner.setVisibility(View.GONE);
         Button autoTry = smallButton("Last");
-        Button pull = smallButton("Pull Now");
+        Button pull = smallButton("Sync Now");
         Button log = smallButton("Log");
         Button edit = smallButton("Edit");
         Button menu = smallButton("Menu");
@@ -368,7 +368,7 @@ public class MainActivity extends Activity {
         TextView help = new TextView(this);
         help.setTextColor(0xffd8f6ff);
         help.setTextSize(16);
-        help.setText("Pick a section. Pull Now and Edit stay on the main bar.");
+        help.setText("Pick a section. Sync Now and Edit stay on the main bar.");
         panel.addView(help);
 
         menuContent = new LinearLayout(this);
@@ -402,12 +402,9 @@ public class MainActivity extends Activity {
             else stopObd();
         });
         addMenuButton("Scan for adapters", v -> {
-            scanAllDevices();
-            ui.postDelayed(() -> {
-                if (configPanel != null && configPanel.getVisibility() == View.VISIBLE) showDeviceSelectMenu();
-            }, 3500);
+            scanAndOpenDevicePicker();
         });
-        addMenuButton("Forget adapter", v -> forgetSavedDevice());
+        addMenuButton("Forget adapter", v -> showForgetConfirmMenu());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -417,8 +414,7 @@ public class MainActivity extends Activity {
         addMenuHeader("Select device");
         if (deviceChoices.isEmpty()) {
             addMenuButton("Scan for adapters", v -> {
-                scanAllDevices();
-                popupChat("Scanning Bluetooth adapters.\nOpen Menu > Bluetooth > Select device again after a few seconds.");
+                scanAndOpenDevicePicker();
             });
         } else {
             for (int i = 0; i < deviceChoices.size(); i++) {
@@ -429,6 +425,17 @@ public class MainActivity extends Activity {
             }
         }
         addMenuButton("Back", v -> showBluetoothMenu());
+    }
+
+    private void showForgetConfirmMenu() {
+        if (menuContent == null) return;
+        menuContent.removeAllViews();
+        addMenuHeader("Forget adapter?");
+        addMenuButton("Yes, forget saved adapter", v -> {
+            forgetSavedDevice();
+            showBluetoothMenu();
+        });
+        addMenuButton("Cancel", v -> showBluetoothMenu());
     }
 
     private void showServerMenu() {
@@ -471,7 +478,7 @@ public class MainActivity extends Activity {
         menuContent.removeAllViews();
         addMenuHeader("Debug");
         addMenuButton("Show / hide log", v -> toggleLog());
-        addMenuButton("Pull Now / copy log", v -> pullNow());
+        addMenuButton("Sync Now", v -> pullNow());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -523,7 +530,7 @@ public class MainActivity extends Activity {
         sendLogSnapshotToPc();
         fetchRemoteMessage();
         fetchRemoteConfig(true);
-        popupChat("Pulling latest dashboard config\nCopied and sent debug log\n" + serverBase());
+        popupChat("Syncing latest dashboard config\nCopied and sent debug log\n" + serverBase());
     }
 
     private void copyLog() {
@@ -536,7 +543,15 @@ public class MainActivity extends Activity {
     private void sendLogSnapshotToPc() {
         String snapshot = diagLog.toString();
         if (snapshot.trim().isEmpty()) return;
-        sendRemoteLog("LOG SNAPSHOT FROM PULL NOW\n" + snapshot);
+        sendRemoteLog("LOG SNAPSHOT FROM SYNC NOW\n" + snapshot);
+    }
+
+    private void scanAndOpenDevicePicker() {
+        scanAllDevices();
+        popupChat("Scanning Bluetooth adapters.\nThe device picker will reopen when scan finishes.");
+        ui.postDelayed(() -> {
+            if (!destroyed && configPanel != null && configPanel.getVisibility() == View.VISIBLE) showDeviceSelectMenu();
+        }, 4200);
     }
 
     private void cycleDevice(int delta) {
@@ -651,7 +666,7 @@ public class MainActivity extends Activity {
         if (!autoReconnectEnabled || destroyed || intentionalStop || obdSession != null || connecting) return;
         if (lastConnectedAddress == null || lastConnectedAddress.isEmpty()) {
             addDiag("Auto-connect skipped: no saved adapter");
-            popupChat("No saved adapter yet. Tap Scan, choose VEEPEAK, then Connect once.");
+            popupChat("No saved adapter yet. Tap Scan, then choose VEEPEAK. It will connect right away.");
             return;
         }
         if (selectSavedDeviceIfPresent()) {
@@ -684,6 +699,7 @@ public class MainActivity extends Activity {
     private void scheduleSavedBluetoothRetry(long delayMs) {
         if (destroyed || !keepTryingSavedBluetooth || intentionalStop) return;
         if (lastConnectedAddress == null || lastConnectedAddress.isEmpty()) return;
+        setCoachStatus("Failed, will retry in " + Math.max(1, delayMs / 1000) + " sec...");
         ui.removeCallbacks(savedBluetoothRetryRunnable);
         ui.postDelayed(savedBluetoothRetryRunnable, delayMs);
     }
@@ -692,7 +708,7 @@ public class MainActivity extends Activity {
         if (!autoReconnectEnabled || intentionalStop || destroyed) return;
         if (lastConnectedAddress == null || lastConnectedAddress.isEmpty()) return;
         addDiag("Auto reconnect scheduled after " + reason);
-        setCoachStatus("Reconnecting soon...");
+        setCoachStatus("Failed, will retry in 3 sec...");
         ui.postDelayed(() -> {
             if (destroyed || intentionalStop || obdSession != null || connecting) return;
             if (!selectSavedDeviceIfPresent()) {
@@ -911,7 +927,7 @@ public class MainActivity extends Activity {
                 .remove("lastBle")
                 .apply();
         addDiag("Forgot saved device");
-        popupChat("Saved device cleared. Tap Scan, pick VEEPEAK, then Auto.");
+        popupChat("Saved device cleared. Tap Scan, then pick VEEPEAK.");
     }
 
     private void fetchRemoteMessage() {
@@ -1001,7 +1017,7 @@ public class MainActivity extends Activity {
                 if (!config.isEmpty() && (forceApply || !config.equals(lastConfig))) {
                     ui.post(() -> {
                         if (forceApply) popupChat("Connected to PC editor\nFresh-pulling the newest staged dashboard now.");
-                        addDiag(forceApply ? "Applying PC config from Pull Now, overriding local dashboard file" : "Applying changed PC config");
+                        addDiag(forceApply ? "Applying PC config from Sync Now, overriding local dashboard file" : "Applying changed PC config");
                         applyRemoteConfig(config);
                     });
                 }
@@ -2863,6 +2879,7 @@ public class MainActivity extends Activity {
                     ? PIN_OPTIONS
                     : mergePins(selectedPin, PIN_OPTIONS);
             IOException last = null;
+            listener.onStatus("Trying direct socket fallback...");
             diag.log("AutoTry no-pair socket pass");
             last = tryAllClassicSockets();
             if (last == null) {
@@ -2877,7 +2894,9 @@ public class MainActivity extends Activity {
             }
             for (String pin : pins) {
                 if (!running) break;
-                diag.log("AutoTry PIN " + (pin.isEmpty() ? "off" : pin));
+                String pinLabel = pin.isEmpty() ? "PIN off" : "PIN " + pin;
+                listener.onStatus("Trying " + pinLabel + "...");
+                diag.log("AutoTry " + pinLabel);
                 prepareBond(pin);
                 last = tryAllClassicSockets();
                 if (last == null) {
@@ -2936,6 +2955,7 @@ public class MainActivity extends Activity {
                 if (!running) break;
                 try {
                     closeSocketOnly();
+                    listener.onStatus("Trying socket " + method + "...");
                     diag.log("AutoTry socket " + method);
                     socket = createSocket(method);
                     socket.connect();
@@ -2946,6 +2966,7 @@ public class MainActivity extends Activity {
                     return null;
                 } catch (Exception ex) {
                     last = ex instanceof IOException ? (IOException) ex : new IOException(ex);
+                    listener.onStatus("Failed socket " + method + ", trying next...");
                     diag.log("AutoTry failed " + method + ": " + ex.getMessage());
                     closeSocketOnly();
                 }
