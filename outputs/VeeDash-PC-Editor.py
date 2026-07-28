@@ -11,7 +11,7 @@ import tkinter as tk
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from tkinter import colorchooser, filedialog, simpledialog, ttk
+from tkinter import colorchooser, filedialog, ttk
 from urllib.parse import parse_qs, unquote
 
 try:
@@ -530,6 +530,8 @@ class Editor(tk.Tk):
         self.data = load_config()
         self.selected = tk.StringVar(value="rpm")
         self.mode = tk.StringVar(value="number")
+        self.item_label = tk.StringVar(value="")
+        self.item_pid = tk.StringVar(value="rpm")
         self.vars = {}
         self.reactive_vars = {}
         self.alpha_vars = {}
@@ -558,7 +560,7 @@ class Editor(tk.Tk):
     def build(self):
         left_outer = ttk.Frame(self)
         left_outer.pack(side=tk.LEFT, fill=tk.Y)
-        left_canvas = tk.Canvas(left_outer, width=280, highlightthickness=0)
+        left_canvas = tk.Canvas(left_outer, width=320, highlightthickness=0)
         left_scroll = ttk.Scrollbar(left_outer, orient="vertical", command=left_canvas.yview)
         left_canvas.configure(yscrollcommand=left_scroll.set)
         left_canvas.pack(side=tk.LEFT, fill=tk.Y)
@@ -571,46 +573,98 @@ class Editor(tk.Tk):
         right = ttk.Frame(self, padding=10)
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        ttk.Label(left, text="Connection").pack(anchor="w")
-        ttk.Label(left, textvariable=self.server_address, foreground="#0a7").pack(anchor="w")
-        ttk.Label(left, text="Client IP").pack(anchor="w", pady=(6, 0))
-        dash_ip_entry = ttk.Entry(left, textvariable=self.dash_client_ip, width=26)
+        toolbar = ttk.Frame(right)
+        toolbar.pack(fill=tk.X, pady=(0, 8))
+        self.add_menu = tk.Menu(toolbar, tearoff=False)
+        self.add_menu.add_command(label="Gauge", command=self.add_gauge)
+        self.add_menu.add_command(label="Chat popup", command=lambda: self.add_overlay("chat"))
+        self.add_menu.add_command(label="Debug log", command=lambda: self.add_overlay("log"))
+        self.add_menu.add_command(label="Clock", command=lambda: self.add_overlay("clock"))
+        self.add_menu.add_command(label="Date", command=lambda: self.add_overlay("date"))
+        add_button = ttk.Menubutton(toolbar, text="Add", menu=self.add_menu)
+        add_button.pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(toolbar, text="Delete", command=self.delete_selected).pack(side=tk.LEFT, padx=4)
+        ttk.Button(toolbar, text="Push dash", command=self.push_dash_now).pack(side=tk.LEFT, padx=4)
+        ttk.Button(toolbar, text="Reset", command=self.reset_default).pack(side=tk.LEFT, padx=4)
+        self.asset_menu = tk.Menu(toolbar, tearoff=False)
+        self.asset_menu.add_command(label="Set background GIF/image", command=self.pick_background)
+        self.asset_menu.add_command(label="Clear background", command=self.clear_background)
+        self.asset_menu.add_separator()
+        self.asset_menu.add_command(label="Set selected dial GIF/image", command=self.pick_gauge_image)
+        self.asset_menu.add_command(label="Clear selected dial image", command=self.clear_gauge_image)
+        ttk.Menubutton(toolbar, text="Images", menu=self.asset_menu).pack(side=tk.LEFT, padx=4)
+        self.color_menu = tk.Menu(toolbar, tearoff=False)
+        self.color_menu.add_command(label="Accent color", command=lambda: self.pick_color("accentColor"))
+        self.color_menu.add_command(label="Background color", command=lambda: self.pick_color("backgroundColor"))
+        self.color_menu.add_command(label="Gauge fill color", command=lambda: self.pick_color("gaugeFillColor"))
+        ttk.Menubutton(toolbar, text="Colors", menu=self.color_menu).pack(side=tk.LEFT, padx=4)
+
+        ttk.Label(left, textvariable=self.info_text, foreground="#06c", wraplength=290).pack(anchor="w", pady=(0, 8))
+        notebook = ttk.Notebook(left)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        item_tab = ttk.Frame(notebook, padding=8)
+        visual_tab = ttk.Frame(notebook, padding=8)
+        dash_tab = ttk.Frame(notebook, padding=8)
+        network_tab = ttk.Frame(notebook, padding=8)
+        automation_tab = ttk.Frame(notebook, padding=8)
+        notebook.add(item_tab, text="Item")
+        notebook.add(visual_tab, text="Visuals")
+        notebook.add(dash_tab, text="Dash")
+        notebook.add(network_tab, text="Network")
+        notebook.add(automation_tab, text="Auto")
+
+        ttk.Label(network_tab, text="Connection").pack(anchor="w")
+        ttk.Label(network_tab, textvariable=self.server_address, foreground="#0a7").pack(anchor="w")
+        ttk.Label(network_tab, text="Client IP").pack(anchor="w", pady=(6, 0))
+        dash_ip_entry = ttk.Entry(network_tab, textvariable=self.dash_client_ip, width=26)
         dash_ip_entry.pack(fill=tk.X, pady=(0, 4))
         dash_ip_entry.bind("<Return>", lambda _e: self.save_network_fields())
         dash_ip_entry.bind("<FocusOut>", lambda _e: self.save_network_fields())
-        network_buttons = ttk.Frame(left)
+        network_buttons = ttk.Frame(network_tab)
         network_buttons.pack(fill=tk.X, pady=(0, 6))
         ttk.Button(network_buttons, text="Use last", command=self.use_last_client_ip).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
         ttk.Button(network_buttons, text="Save IP", command=self.save_network_fields).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
-        ttk.Label(left, textvariable=self.info_text, foreground="#06c", wraplength=250).pack(anchor="w", pady=(0, 8))
 
-        ttk.Label(left, text="Layer item").pack(anchor="w")
-        self.item_box = ttk.Combobox(left, textvariable=self.selected, values=self.item_keys(), state="readonly", width=26)
+        ttk.Label(item_tab, text="Selected item").pack(anchor="w")
+        self.item_box = ttk.Combobox(item_tab, textvariable=self.selected, values=self.item_keys(), state="readonly", width=26)
         self.item_box.pack(fill=tk.X, pady=(0, 8))
         self.item_box.bind("<<ComboboxSelected>>", lambda _e: self.load_selected())
 
-        ttk.Label(left, text="Display mode").pack(anchor="w")
-        self.mode_box = ttk.Combobox(left, textvariable=self.mode, values=["number", "graph", "both", "ring", "bar"], state="readonly")
+        ttk.Label(item_tab, text="Display name").pack(anchor="w")
+        self.label_entry = ttk.Entry(item_tab, textvariable=self.item_label)
+        self.label_entry.pack(fill=tk.X, pady=(0, 8))
+        self.label_entry.bind("<Return>", lambda _e: self.changed())
+        self.label_entry.bind("<FocusOut>", lambda _e: self.changed())
+
+        ttk.Label(item_tab, text="Data source").pack(anchor="w")
+        self.pid_box = ttk.Combobox(item_tab, textvariable=self.item_pid, values=self.data_source_labels(), state="readonly")
+        self.pid_box.pack(fill=tk.X, pady=(0, 8))
+        self.pid_box.bind("<<ComboboxSelected>>", lambda _e: self.changed())
+
+        ttk.Label(item_tab, text="Display mode").pack(anchor="w")
+        self.mode_box = ttk.Combobox(item_tab, textvariable=self.mode, values=["number", "graph", "both", "ring", "bar"], state="readonly")
         self.mode_box.pack(fill=tk.X, pady=(0, 8))
         self.mode_box.bind("<<ComboboxSelected>>", lambda _e: self.changed())
 
         for name in ("x", "y"):
             self.vars[name] = tk.DoubleVar()
         for name, label, lo, hi in [("size", "SIZE", 0.08, 0.40), ("layer", "LAYER", 0, 100)]:
-            ttk.Label(left, text=label).pack(anchor="w")
+            ttk.Label(item_tab, text=label).pack(anchor="w")
             var = tk.DoubleVar()
             self.vars[name] = var
-            ttk.Scale(left, from_=lo, to=hi, variable=var, command=lambda _v: self.changed()).pack(fill=tk.X)
+            ttk.Scale(item_tab, from_=lo, to=hi, variable=var, command=lambda _v: self.changed()).pack(fill=tk.X)
 
         self.visible = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left, text="Visible", variable=self.visible, command=self.changed).pack(anchor="w", pady=8)
+        ttk.Checkbutton(item_tab, text="Visible", variable=self.visible, command=self.changed).pack(anchor="w", pady=8)
+        ttk.Button(item_tab, text="Bring forward", command=lambda: self.bump_layer(5)).pack(fill=tk.X, pady=2)
+        ttk.Button(item_tab, text="Send backward", command=lambda: self.bump_layer(-5)).pack(fill=tk.X, pady=2)
 
-        ttk.Separator(left).pack(fill=tk.X, pady=10)
-        ttk.Label(left, text="Dial response").pack(anchor="w")
+        ttk.Label(item_tab, text="Dial response").pack(anchor="w", pady=(12, 0))
         self.reactive_grow = tk.BooleanVar(value=False)
         self.reactive_tint = tk.BooleanVar(value=False)
-        ttk.Checkbutton(left, text="Grow with value", variable=self.reactive_grow, command=self.changed).pack(anchor="w")
-        ttk.Checkbutton(left, text="Tint by thresholds", variable=self.reactive_tint, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(item_tab, text="Grow with value", variable=self.reactive_grow, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(item_tab, text="Tint by thresholds", variable=self.reactive_tint, command=self.changed).pack(anchor="w")
         for name, label, lo, hi in [
             ("valueMin", "Low/min value", 0, 8000),
             ("valueMax", "High/max value", 1, 8000),
@@ -620,17 +674,17 @@ class Editor(tk.Tk):
         ]:
             var = tk.DoubleVar()
             self.reactive_vars[name] = var
-            row = ttk.Frame(left)
+            row = ttk.Frame(item_tab)
             row.pack(fill=tk.X, pady=(2, 0))
             ttk.Label(row, text=label).pack(side=tk.LEFT, anchor="w")
             entry = ttk.Entry(row, textvariable=var, width=8)
             entry.pack(side=tk.RIGHT)
             entry.bind("<Return>", lambda _e: self.changed())
             entry.bind("<FocusOut>", lambda _e: self.changed())
-            ttk.Scale(left, from_=lo, to=hi, variable=var, command=lambda _v: self.changed()).pack(fill=tk.X)
-        ttk.Button(left, text="Low tint color", command=lambda: self.pick_reactive_color("lowColor")).pack(fill=tk.X, pady=(8, 2))
-        ttk.Button(left, text="Mid tint color", command=lambda: self.pick_reactive_color("midColor")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="High tint color", command=lambda: self.pick_reactive_color("highColor")).pack(fill=tk.X, pady=2)
+            ttk.Scale(item_tab, from_=lo, to=hi, variable=var, command=lambda _v: self.changed()).pack(fill=tk.X)
+        ttk.Button(item_tab, text="Low tint color", command=lambda: self.pick_reactive_color("lowColor")).pack(fill=tk.X, pady=(8, 2))
+        ttk.Button(item_tab, text="Mid tint color", command=lambda: self.pick_reactive_color("midColor")).pack(fill=tk.X, pady=2)
+        ttk.Button(item_tab, text="High tint color", command=lambda: self.pick_reactive_color("highColor")).pack(fill=tk.X, pady=2)
 
         self.show_log = tk.BooleanVar(value=self.data.get("showLog", True))
         self.show_chat = tk.BooleanVar(value=self.data.get("showChat", True))
@@ -638,24 +692,14 @@ class Editor(tk.Tk):
         self.auto_reconnect = tk.BooleanVar(value=self.data.get("autoReconnect", True))
         self.auto_dim = tk.BooleanVar(value=self.data.get("autoDim", True))
         self.run_command_on_connect = tk.BooleanVar(value=self.data.get("runCommandOnConnect", False))
-        ttk.Checkbutton(left, text="Show debug log", variable=self.show_log, command=self.changed).pack(anchor="w")
-        ttk.Checkbutton(left, text="Show chat box", variable=self.show_chat, command=self.changed).pack(anchor="w")
-        ttk.Label(left, text="Chat popup seconds").pack(anchor="w")
-        ttk.Scale(left, from_=2.0, to=15.0, variable=self.chat_popup_seconds, command=lambda _v: self.changed()).pack(fill=tk.X)
-        ttk.Checkbutton(left, text="Auto reconnect", variable=self.auto_reconnect, command=self.changed).pack(anchor="w")
-        ttk.Checkbutton(left, text="Auto dim with lights", variable=self.auto_dim, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(dash_tab, text="Show debug log", variable=self.show_log, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(dash_tab, text="Show chat box", variable=self.show_chat, command=self.changed).pack(anchor="w")
+        ttk.Label(dash_tab, text="Chat popup seconds").pack(anchor="w")
+        ttk.Scale(dash_tab, from_=2.0, to=15.0, variable=self.chat_popup_seconds, command=lambda _v: self.changed()).pack(fill=tk.X)
+        ttk.Checkbutton(dash_tab, text="Auto reconnect", variable=self.auto_reconnect, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(dash_tab, text="Auto dim with lights", variable=self.auto_dim, command=self.changed).pack(anchor="w")
 
-        ttk.Separator(left).pack(fill=tk.X, pady=10)
-        ttk.Button(left, text="Motion GIF / image background", command=self.pick_background).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Clear image background", command=self.clear_background).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Selected dial image/GIF", command=self.pick_gauge_image).pack(fill=tk.X, pady=(10, 2))
-        ttk.Button(left, text="Clear selected dial image", command=self.clear_gauge_image).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Accent color", command=lambda: self.pick_color("accentColor")).pack(fill=tk.X, pady=(10, 2))
-        ttk.Button(left, text="Background color", command=lambda: self.pick_color("backgroundColor")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Gauge fill color", command=lambda: self.pick_color("gaugeFillColor")).pack(fill=tk.X, pady=2)
-
-        ttk.Separator(left).pack(fill=tk.X, pady=10)
-        ttk.Label(left, text="Transparency").pack(anchor="w")
+        ttk.Label(visual_tab, text="Transparency").pack(anchor="w")
         for key, label in [
             ("gaugeAlpha", "Gauge fill"),
             ("backgroundDimAlpha", "Background dim"),
@@ -666,38 +710,33 @@ class Editor(tk.Tk):
             ("nightBrightness", "Night screen brightness"),
             ("nightExtraDim", "Night extra dim"),
         ]:
-            ttk.Label(left, text=label).pack(anchor="w")
+            ttk.Label(visual_tab, text=label).pack(anchor="w")
             var = tk.DoubleVar(value=float(self.data.get(key, DEFAULT[key])))
             self.alpha_vars[key] = var
-            ttk.Scale(left, from_=0.0, to=1.0, variable=var, command=lambda _v: self.alpha_changed()).pack(fill=tk.X)
+            ttk.Scale(visual_tab, from_=0.0, to=1.0, variable=var, command=lambda _v: self.alpha_changed()).pack(fill=tk.X)
 
-        ttk.Separator(left).pack(fill=tk.X, pady=10)
-        ttk.Button(left, text="Add gauge", command=self.add_gauge).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Add chat", command=lambda: self.add_overlay("chat")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Add log", command=lambda: self.add_overlay("log")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Add clock", command=lambda: self.add_overlay("clock")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Add date", command=lambda: self.add_overlay("date")).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Delete selected item", command=self.delete_selected).pack(fill=tk.X, pady=(2, 10))
-        ttk.Button(left, text="Bring forward", command=lambda: self.bump_layer(5)).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Send backward", command=lambda: self.bump_layer(-5)).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="Reset default layout", command=self.reset_default).pack(fill=tk.X, pady=(10, 2))
-        ttk.Button(left, text="Push dash now", command=self.push_dash_now).pack(fill=tk.X, pady=2)
+        ttk.Button(visual_tab, text="Motion GIF / image background", command=self.pick_background).pack(fill=tk.X, pady=(10, 2))
+        ttk.Button(visual_tab, text="Clear image background", command=self.clear_background).pack(fill=tk.X, pady=2)
+        ttk.Button(visual_tab, text="Selected dial image/GIF", command=self.pick_gauge_image).pack(fill=tk.X, pady=(10, 2))
+        ttk.Button(visual_tab, text="Clear selected dial image", command=self.clear_gauge_image).pack(fill=tk.X, pady=2)
+        ttk.Button(visual_tab, text="Accent color", command=lambda: self.pick_color("accentColor")).pack(fill=tk.X, pady=(10, 2))
+        ttk.Button(visual_tab, text="Background color", command=lambda: self.pick_color("backgroundColor")).pack(fill=tk.X, pady=2)
+        ttk.Button(visual_tab, text="Gauge fill color", command=lambda: self.pick_color("gaugeFillColor")).pack(fill=tk.X, pady=2)
 
-        ttk.Label(left, text="Dash chat message").pack(anchor="w", pady=(12, 2))
-        self.message = tk.Text(left, height=4, width=30)
+        ttk.Label(dash_tab, text="Dash chat message").pack(anchor="w", pady=(12, 2))
+        self.message = tk.Text(dash_tab, height=5, width=30)
         self.message.pack(fill=tk.X)
         if MESSAGE.exists():
             self.message.insert("1.0", MESSAGE.read_text(encoding="utf-8", errors="replace"))
-        ttk.Button(left, text="Send chat", command=self.save_message).pack(fill=tk.X, pady=4)
+        ttk.Button(dash_tab, text="Send chat", command=self.save_message).pack(fill=tk.X, pady=4)
 
-        ttk.Separator(left).pack(fill=tk.X, pady=10)
-        ttk.Label(left, text="Run local program").pack(anchor="w")
-        self.command_text = tk.Text(left, height=3, width=30)
+        ttk.Label(automation_tab, text="Run local program").pack(anchor="w")
+        self.command_text = tk.Text(automation_tab, height=4, width=30)
         self.command_text.pack(fill=tk.X)
         self.command_text.insert("1.0", str(self.data.get("onlineCommand", "python --version")))
-        ttk.Checkbutton(left, text="Run when car comes online", variable=self.run_command_on_connect, command=self.save_command_settings).pack(anchor="w", pady=(4, 0))
-        ttk.Button(left, text="Run command", command=self.run_command).pack(fill=tk.X, pady=4)
-        self.command_output = tk.Text(left, height=6, width=30)
+        ttk.Checkbutton(automation_tab, text="Run when car comes online", variable=self.run_command_on_connect, command=self.save_command_settings).pack(anchor="w", pady=(4, 0))
+        ttk.Button(automation_tab, text="Run command", command=self.run_command).pack(fill=tk.X, pady=4)
+        self.command_output = tk.Text(automation_tab, height=10, width=30)
         self.command_output.pack(fill=tk.X)
         if COMMAND_OUTPUT.exists():
             self.command_output.insert("1.0", COMMAND_OUTPUT.read_text(encoding="utf-8", errors="replace"))
@@ -713,6 +752,18 @@ class Editor(tk.Tk):
 
     def item_keys(self):
         return [g["key"] for g in self.data["gauges"]] + [o["key"] for o in self.data["overlays"]]
+
+    def data_source_labels(self):
+        return [f"{GAUGE_LABELS.get(key, key.upper())} ({key})" for key in GAUGE_KEYS]
+
+    def label_to_pid(self, label):
+        match = re.search(r"\(([^)]+)\)\s*$", label or "")
+        pid = match.group(1).strip().lower() if match else (label or "").strip().lower()
+        return pid if pid in GAUGE_KEYS else "rpm"
+
+    def pid_to_label(self, pid):
+        pid = pid if pid in GAUGE_KEYS else "rpm"
+        return f"{GAUGE_LABELS.get(pid, pid.upper())} ({pid})"
 
     def item(self, key=None):
         key = key or self.selected.get()
@@ -731,15 +782,34 @@ class Editor(tk.Tk):
     def load_selected(self):
         item, kind = self.item()
         if kind == "gauge":
+            pid = item.get("pid", item.get("key", "rpm"))
+            if pid not in GAUGE_KEYS:
+                pid = "rpm"
+            self.item_label.set(item.get("label", GAUGE_LABELS.get(pid, pid.upper())))
+            self.item_pid.set(self.pid_to_label(pid))
+            self.label_entry.configure(state="normal")
+            self.pid_box.configure(state="readonly")
             self.mode_box.configure(values=["number", "graph", "both", "ring", "bar"], state="readonly")
             self.mode.set(item.get("mode", "number"))
         elif item.get("type", item.get("key")) == "clock":
+            self.item_label.set(item.get("key", "clock"))
+            self.item_pid.set("")
+            self.label_entry.configure(state="disabled")
+            self.pid_box.configure(state="disabled")
             self.mode_box.configure(values=["time", "time_date", "yyyy_mm_dd_time", "yyyy_mm_dd_ampm", "date", "seconds", "compact"], state="readonly")
             self.mode.set(item.get("mode", "time"))
         elif item.get("type", item.get("key")) == "date":
+            self.item_label.set(item.get("key", "date"))
+            self.item_pid.set("")
+            self.label_entry.configure(state="disabled")
+            self.pid_box.configure(state="disabled")
             self.mode_box.configure(values=["yyyy_mm_dd", "mm_dd_yyyy", "weekday_date", "short_date"], state="readonly")
             self.mode.set(item.get("mode", "yyyy_mm_dd"))
         else:
+            self.item_label.set(item.get("key", "overlay"))
+            self.item_pid.set("")
+            self.label_entry.configure(state="disabled")
+            self.pid_box.configure(state="disabled")
             self.mode_box.configure(state="disabled")
             self.mode.set("number")
         self.vars["x"].set(item.get("x", 0.5))
@@ -763,6 +833,10 @@ class Editor(tk.Tk):
         item["visible"] = bool(self.visible.get())
         item["layer"] = int(round(self.vars["layer"].get()))
         if kind == "gauge":
+            pid = self.label_to_pid(self.item_pid.get())
+            item["pid"] = pid
+            label = self.item_label.get().strip()
+            item["label"] = label or GAUGE_LABELS.get(pid, pid.upper())
             item["size"] = round(self.vars["size"].get(), 3)
             item["mode"] = self.mode.get()
             reactive = item.setdefault("reactive", {})
@@ -903,23 +977,16 @@ class Editor(tk.Tk):
     def add_gauge(self):
         current, kind = self.item()
         default_pid = current.get("pid", current.get("key", "rpm")) if kind == "gauge" else "rpm"
-        pid = simpledialog.askstring(
-            "Add gauge",
-            "Data source: rpm, speed, coolant, volts, load, throttle",
-            initialvalue=default_pid if default_pid in GAUGE_KEYS else "rpm",
-            parent=self,
-        )
-        if not pid:
+        default_pid = default_pid if default_pid in GAUGE_KEYS else "rpm"
+        details = self.ask_gauge_details(default_pid)
+        if not details:
             return
-        pid = pid.strip().lower()
-        if pid not in GAUGE_KEYS:
-            self.info_text.set(f"Unknown data source: {pid}")
-            return
+        name, pid = details
         template = next((g for g in DEFAULT["gauges"] if g["key"] == pid), DEFAULT["gauges"][0])
         item = json.loads(json.dumps(template))
         item["pid"] = pid
-        item["key"] = self.unique_key(pid)
-        item["label"] = GAUGE_LABELS.get(pid, pid.upper())
+        item["key"] = self.unique_key(name or pid)
+        item["label"] = name or GAUGE_LABELS.get(pid, pid.upper())
         item["x"] = 0.5
         item["y"] = 0.5
         item["layer"] = max([g.get("layer", 20) for g in self.data["gauges"]] + [20]) + 1
@@ -928,6 +995,45 @@ class Editor(tk.Tk):
         self.refresh_item_box()
         self.load_selected()
         self.save_all(silent=True)
+
+    def ask_gauge_details(self, default_pid):
+        dialog = tk.Toplevel(self)
+        dialog.title("Add gauge")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        name_var = tk.StringVar(value=GAUGE_LABELS.get(default_pid, default_pid.upper()))
+        pid_var = tk.StringVar(value=self.pid_to_label(default_pid))
+        result = {"value": None}
+
+        frame = ttk.Frame(dialog, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text="Gauge name").pack(anchor="w")
+        name_entry = ttk.Entry(frame, textvariable=name_var, width=34)
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(frame, text="Data source").pack(anchor="w")
+        pid_box = ttk.Combobox(frame, textvariable=pid_var, values=self.data_source_labels(), state="readonly", width=34)
+        pid_box.pack(fill=tk.X, pady=(0, 12))
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X)
+
+        def accept():
+            pid = self.label_to_pid(pid_var.get())
+            name = name_var.get().strip() or GAUGE_LABELS.get(pid, pid.upper())
+            result["value"] = (name, pid)
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Add", command=accept).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(buttons, text="Cancel", command=cancel).pack(side=tk.RIGHT)
+        dialog.bind("<Return>", lambda _e: accept())
+        dialog.bind("<Escape>", lambda _e: cancel())
+        name_entry.focus_set()
+        self.wait_window(dialog)
+        return result["value"]
 
     def add_overlay(self, overlay_type):
         template = next((o for o in DEFAULT["overlays"] if o["key"] == overlay_type), DEFAULT["overlays"][0])
