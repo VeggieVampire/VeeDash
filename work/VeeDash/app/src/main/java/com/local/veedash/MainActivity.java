@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0805";
+    private static final String APP_VERSION = "2026.07.28-0810";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2248,6 +2248,10 @@ public class MainActivity extends Activity {
             float cy = gauge.y * getHeight();
             Float value = values.get(gauge.pid);
             float valueForStyle = value == null ? 0f : value;
+            if ("bar".equals(gauge.mode)) {
+                drawBarGauge(canvas, gauge, cx, cy, value, valueForStyle);
+                return;
+            }
             float r = gauge.size * Math.min(getWidth(), getHeight()) * reactiveScale(gauge, valueForStyle);
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(gauge == active && editMode ? alphaColor(0x17324d, 0xdd) : alphaColor(gaugeFillColor, Math.round(gaugeAlpha * 255f)));
@@ -2265,13 +2269,51 @@ public class MainActivity extends Activity {
             String number = value == null ? "--" : formatValue(gauge.pid, value);
             boolean graphMode = "graph".equals(gauge.mode) || "both".equals(gauge.mode);
             boolean ringMode = "ring".equals(gauge.mode);
-            boolean barMode = "bar".equals(gauge.mode);
             if (graphMode) drawGraph(canvas, gauge, cx, cy, r, "both".equals(gauge.mode));
-            if (ringMode || barMode) drawMeter(canvas, gauge, cx, cy, r, valueForStyle, ringMode);
+            if (ringMode) drawMeter(canvas, gauge, cx, cy, r, valueForStyle, true);
             if (!"graph".equals(gauge.mode)) {
                 drawOutlinedText(canvas, number, cx, cy + r * 0.04f, r * 0.40f, Color.WHITE, r * 0.035f);
             }
             drawOutlinedText(canvas, gauge.label, cx, cy + r * 0.40f, r * 0.16f, 0xffe6f8ff, r * 0.014f);
+        }
+
+        private void drawBarGauge(Canvas canvas, Gauge gauge, float cx, float cy, Float value, float valueForStyle) {
+            float base = gauge.size * Math.min(getWidth(), getHeight()) * reactiveScale(gauge, valueForStyle);
+            float barW = base * 2.15f;
+            float barH = Math.max(8f, base * 0.20f);
+            float radius = barH / 2f;
+            float lo = gauge.valueMin;
+            float hi = gauge.valueMax <= lo ? lo + 1f : gauge.valueMax;
+            float pct = clamp((valueForStyle - lo) / (hi - lo), 0f, 1f);
+            int fillColor = gauge.reactiveTint ? reactiveTintColor(gauge, valueForStyle) : accentColor;
+
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(alphaColor(gaugeFillColor, Math.round(gaugeAlpha * 200f)));
+            RectF back = new RectF(cx - barW / 2f, cy - barH / 2f, cx + barW / 2f, cy + barH / 2f);
+            canvas.drawRoundRect(back, radius, radius, paint);
+
+            paint.setColor(alphaColor(0xffffff, 0x35));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(2f, barH * 0.20f));
+            canvas.drawRoundRect(back, radius, radius, paint);
+
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(fillColor);
+            RectF amount = new RectF(back.left, back.top, back.left + barW * pct, back.bottom);
+            canvas.drawRoundRect(amount, radius, radius, paint);
+
+            String number = value == null ? "--" : formatValue(gauge.pid, value);
+            drawOutlinedText(canvas, number, cx, cy - barH * 0.95f, Math.max(18f, base * 0.36f), Color.WHITE, base * 0.025f);
+            drawOutlinedText(canvas, gauge.label, cx, cy + barH * 1.85f, Math.max(11f, base * 0.16f), 0xffe6f8ff, base * 0.012f);
+
+            if (gauge == active && editMode) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(2f, barH * 0.16f));
+                paint.setColor(0xffffffff);
+                RectF select = new RectF(back.left - 5f, cy - base * 0.58f, back.right + 5f, cy + base * 0.42f);
+                canvas.drawRoundRect(select, radius, radius, paint);
+            }
         }
 
         private void drawOutlinedText(Canvas canvas, String text, float x, float y, float size, int fillColor, float outlineWidth) {

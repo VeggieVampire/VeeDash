@@ -1560,6 +1560,9 @@ class Editor(tk.Tk):
         selected = g["key"] == self.selected.get()
         width = 5 if selected else 3
         mode = g.get("mode", "number")
+        if mode == "bar":
+            self.draw_bar(g, x, y, r, accent, fill, value, selected)
+            return
         if mode in ("number", "both", "ring") or g.get("imageAsset"):
             self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=fill, outline=accent, width=width)
             dial_image = self.dial_preview_image(g, int(max(8, r * 2)))
@@ -1569,9 +1572,7 @@ class Editor(tk.Tk):
                 self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=tint, outline="", stipple="gray25")
         if mode in ("graph", "both"):
             self.draw_graph(x, y, r, accent)
-        if mode == "bar":
-            self.draw_bar(x, y, r, accent, fill, value)
-        if mode in ("number", "both", "ring", "bar"):
+        if mode in ("number", "both", "ring"):
             self.canvas.create_text(x, y - r * 0.06, text=f"{value:.0f}", fill="white", font=("Segoe UI", int(max(14, r * 0.32)), "bold"))
         self.canvas.create_text(x, y + r * 0.38, text=g.get("label", GAUGE_LABELS.get(pid, pid.upper())), fill="#cfefff", font=("Segoe UI", int(max(9, r * 0.13)), "bold"))
         if selected:
@@ -1641,10 +1642,29 @@ class Editor(tk.Tk):
         self.canvas.create_rectangle(x-r*0.78, y-r*0.38, x+r*0.78, y+r*0.38, outline="#28455a", fill="#061016")
         self.canvas.create_line(points, fill=accent, width=3, smooth=True)
 
-    def draw_bar(self, x, y, r, accent, fill, value):
-        self.canvas.create_rectangle(x-r, y-r*0.30, x+r, y+r*0.30, fill=fill, outline=accent, width=3)
-        pct = max(0.0, min(1.0, value / 100.0))
-        self.canvas.create_rectangle(x-r, y-r*0.30, x-r + pct * r * 2, y+r*0.30, fill=accent, outline="")
+    def draw_bar(self, g, x, y, r, accent, fill, value, selected):
+        reactive = g.get("reactive", {})
+        lo = float(reactive.get("valueMin", 0))
+        hi = float(reactive.get("valueMax", 100))
+        if hi <= lo:
+            hi = lo + 1
+        pct = max(0.0, min(1.0, (float(value) - lo) / (hi - lo)))
+        tint = self.reactive_tint_color(reactive, value) or accent
+        bar_w = r * 2.15
+        bar_h = max(8, r * 0.20)
+        x1 = x - bar_w / 2
+        x2 = x + bar_w / 2
+        y1 = y - bar_h / 2
+        y2 = y + bar_h / 2
+        self.canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline="#d8f6ff", width=2)
+        self.canvas.create_rectangle(x1, y1, x1 + bar_w * pct, y2, fill=tint, outline="")
+        self.canvas.create_text(x, y - bar_h * 0.95, text=f"{value:.0f}", fill="white", font=("Segoe UI", int(max(14, r * 0.36)), "bold"))
+        pid = g.get("pid", g["key"])
+        self.canvas.create_text(x, y + bar_h * 1.85, text=g.get("label", GAUGE_LABELS.get(pid, pid.upper())), fill="#cfefff", font=("Segoe UI", int(max(9, r * 0.16)), "bold"))
+        if selected:
+            self.canvas.create_rectangle(x1 - 5, y - r * 0.58, x2 + 5, y + r * 0.42, outline="#ffffff", dash=(4, 3))
+            hx, hy = self.resize_handle(g, "gauge", max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height()))
+            self.canvas.create_rectangle(hx - 6, hy - 6, hx + 6, hy + 6, fill="#ffffff", outline="#111111")
 
 
 if __name__ == "__main__":
