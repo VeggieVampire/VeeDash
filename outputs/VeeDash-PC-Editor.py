@@ -1,5 +1,6 @@
 import json
 import math
+import random
 import re
 import shutil
 import socket
@@ -32,6 +33,109 @@ LAST_COMMAND_RUN = BASE / "VeeDash-last-command-run.txt"
 COMMAND_OUTPUT = BASE / "VeeDash-command-output.txt"
 SERVER_PORT = 8766
 AWAY_SECONDS = 45
+
+WELCOME_MESSAGES = [
+    "Hello VeeDash, welcome back.\nConnected to the PC editor.\nReady to send the staged dashboard.",
+    "Welcome back, VeeDash.\nPC editor is online.\nYour staged dashboard is ready.",
+    "Hey VeeDash, connection restored.\nThe editor sees you.\nReady for updates.",
+    "VeeDash is back online.\nPC editor connected.\nStanding by with the latest dash.",
+    "Hello from the PC editor.\nDash connection is live.\nUpdates are ready.",
+    "Good to see you, VeeDash.\nThe PC link is active.\nStaged config is waiting.",
+    "VeeDash checked in.\nEditor connection is good.\nReady to pull changes.",
+    "Dash is online again.\nPC editor is listening.\nThe newest layout is staged.",
+    "Connection made.\nWelcome back to the editor.\nDashboard update is ready.",
+    "VeeDash link restored.\nPC editor is ready.\nPull when you are set.",
+    "Hello dash.\nThe PC editor found you.\nConfig and assets are ready.",
+    "Car dash is back.\nEditor server is connected.\nReady for the next pull.",
+    "Welcome online.\nVeeDash can reach the PC.\nStaged dashboard is waiting.",
+    "Dash contact received.\nPC editor is active.\nReady to send config.",
+    "VeeDash is awake.\nEditor server is here.\nLatest dashboard is ready.",
+    "Hello again, VeeDash.\nLocal editor connected.\nReady for layout sync.",
+    "PC editor handshake complete.\nDash is online.\nUpdates are standing by.",
+    "VeeDash has returned.\nThe editor is ready.\nPull the staged dash anytime.",
+    "Connected to PC editor.\nWelcome back.\nDashboard files are ready.",
+    "Dash online signal received.\nPC editor is good.\nReady for config sync.",
+    "VeeDash connection live.\nEditor is serving.\nNewest dashboard is ready.",
+    "Welcome back to the PC.\nDash link is healthy.\nUpdates are staged.",
+    "Hello car dash.\nEditor server sees you.\nReady to deliver changes.",
+    "VeeDash is connected.\nPC editor is prepared.\nDash config is waiting.",
+    "Online again.\nThe editor is ready.\nStaged layout can be pulled.",
+    "Dash is reachable.\nPC editor is running.\nNew config is available.",
+    "VeeDash hello received.\nEditor connection is live.\nReady for updates.",
+    "PC editor is connected.\nDash is back online.\nConfig sync is ready.",
+    "Welcome back to VeeDash.\nLocal editor link restored.\nDashboard is staged.",
+    "Dash connected to editor.\nEverything is ready.\nPull the latest when needed.",
+    "Hello, dashboard.\nPC editor is awake.\nStaged files are ready.",
+    "VeeDash has checked in.\nThe editor is online.\nReady to send the dash.",
+    "Connection restored.\nEditor server has the latest.\nPull when ready.",
+    "Dash link is back.\nPC editor is standing by.\nNewest setup is waiting.",
+    "VeeDash came online.\nThe editor noticed.\nReady for sync.",
+    "Hello from the editor.\nCar dash is connected.\nStaged config is ready.",
+    "The dash is back.\nPC editor is connected.\nReady with the newest layout.",
+    "VeeDash reached the PC.\nEditor server is live.\nUpdates are ready.",
+    "Welcome back online.\nDashboard can pull now.\nPC editor is ready.",
+    "Dash contact confirmed.\nLocal editor is ready.\nConfig is staged.",
+    "VeeDash is present.\nPC server connection is live.\nReady for the dash pull.",
+    "Hello again from PC.\nDash connection is good.\nLatest files are waiting.",
+    "VeeDash online.\nEditor ready.\nDashboard update staged.",
+    "The PC editor sees the dash.\nConnection is active.\nReady to sync.",
+    "Dashboard link restored.\nEditor is serving files.\nLatest config is ready.",
+    "Car radio checked in.\nVeeDash is connected.\nPC editor is ready.",
+    "Welcome back, dash.\nEditor server is up.\nChanges are waiting.",
+    "VeeDash reconnected.\nThe PC editor is prepared.\nPull the newest config.",
+    "Hello from your editor.\nDash is online.\nReady for staged updates.",
+    "Online signal received.\nVeeDash can sync now.\nPC editor is ready.",
+    "Dash came back to the PC.\nEditor link is healthy.\nReady to send changes.",
+    "VeeDash is talking to the PC.\nServer is ready.\nDashboard config is staged.",
+    "The editor has contact.\nDash is live.\nUpdates can be pulled.",
+    "Welcome back to the local server.\nVeeDash is connected.\nReady for config.",
+    "Dash sync path is open.\nPC editor is connected.\nLatest layout is waiting.",
+    "VeeDash returned online.\nEditor server is standing by.\nPull when ready.",
+    "Hello VeeDash.\nThe PC editor is here.\nNewest staged dash is ready.",
+    "Dash connection accepted.\nEditor is running.\nFiles are ready.",
+    "VeeDash is back in range.\nPC editor connected.\nReady for dashboard sync.",
+    "Connection is back.\nHello from the editor.\nReady with staged changes.",
+    "VeeDash checked back in.\nPC server is serving.\nConfig is ready.",
+    "Dash online again.\nEditor link is live.\nLatest dashboard is queued.",
+    "Welcome, VeeDash.\nPC editor connection restored.\nReady to pull.",
+    "The car dash is online.\nEditor server is active.\nDashboard files are ready.",
+    "VeeDash contact received.\nPC editor is ready.\nStaged dash is waiting.",
+    "Hello, connected dash.\nThe editor has your config ready.\nPull when ready.",
+    "PC editor online with VeeDash.\nConnection looks good.\nUpdates are staged.",
+    "Dash link confirmed.\nEditor is ready.\nNewest config is available.",
+    "VeeDash is connected again.\nLocal PC editor is live.\nReady for sync.",
+    "Welcome back to the garage link.\nDash is connected.\nEditor is ready.",
+    "The editor noticed VeeDash.\nConnection restored.\nDashboard is waiting.",
+    "Dash can see the PC now.\nServer is ready.\nStaged update is available.",
+    "VeeDash online check passed.\nEditor is connected.\nReady to send layout.",
+    "Hello from the local editor.\nDash came online.\nLatest config is staged.",
+    "Dash has rejoined the PC.\nEditor server is ready.\nPull the new setup.",
+    "VeeDash connection found.\nPC editor is ready.\nDashboard update waiting.",
+    "Welcome back to the editor.\nDash connection is live.\nConfig is staged.",
+    "VeeDash is reachable again.\nPC server is serving.\nReady for changes.",
+    "Dash is connected to the editor.\nEverything is staged.\nReady when you are.",
+    "Hello VeeDash, link is up.\nPC editor is ready.\nPull the dashboard anytime.",
+    "VeeDash came online cleanly.\nThe editor is connected.\nUpdates are ready.",
+    "PC editor contact made.\nDash is back.\nReady to sync the layout.",
+    "Dashboard is online.\nEditor server sees it.\nNewest files are ready.",
+    "VeeDash sync window is open.\nPC editor is ready.\nConfig can be pulled.",
+    "Welcome back to the dash editor.\nConnection restored.\nLatest setup is ready.",
+    "Dash hello received.\nPC editor responded.\nStaged dashboard is ready.",
+    "VeeDash is live on the network.\nEditor is ready.\nUpdates are waiting.",
+    "Car dash connected.\nLocal editor is online.\nReady to serve config.",
+    "Hello, VeeDash connection.\nThe PC editor is standing by.\nPull the staged dash.",
+    "Dash found the PC editor.\nConnection is good.\nReady for dashboard changes.",
+    "VeeDash is online with the PC.\nServer is ready.\nNewest dash is waiting.",
+    "Welcome back, connected dash.\nEditor server is live.\nConfig sync is ready.",
+    "The local editor sees VeeDash.\nDash is online.\nStaged update is ready.",
+    "VeeDash returned to the network.\nPC editor connected.\nReady to send files.",
+    "Dash connection restored to PC.\nEditor is ready.\nPull the latest dash.",
+    "Hello from VeeDash editor.\nYour dash is online.\nStaged changes are ready.",
+    "PC editor has the dash online.\nConnection confirmed.\nReady for config pull.",
+    "VeeDash checked in again.\nThe editor is ready.\nDashboard update is waiting.",
+    "Dash is awake and connected.\nPC editor is ready.\nLatest layout is staged.",
+    "Welcome back to the dashboard link.\nVeeDash is connected.\nReady for updates.",
+]
 
 GAUGE_KEYS = ["rpm", "speed", "coolant", "volts", "load", "throttle"]
 SAMPLE = {
@@ -186,12 +290,7 @@ def note_dash_contact(ip, route):
     stamp(LAST_CONTACT, f"{now} from={ip} {route}")
     if was_away:
         if previous_welcome < previous_contact or time.time() - previous_welcome > AWAY_SECONDS:
-            MESSAGE.write_text(
-                "Hello VeeDash, welcome back.\n"
-                "Connected to the PC editor.\n"
-                "Ready to send the staged dashboard.",
-                encoding="utf-8",
-            )
+            MESSAGE.write_text(random.choice(WELCOME_MESSAGES), encoding="utf-8")
             stamp(LAST_WELCOME, f"{now} welcomed {ip}")
         maybe_run_online_command(ip, route)
 
