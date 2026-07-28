@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1020";
+    private static final String APP_VERSION = "2026.07.28-1050";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -940,6 +940,10 @@ public class MainActivity extends Activity {
     private void popupChat(String message) {
         coachMessage = message;
         updateCoachView();
+        if (diagScroll != null && diagScroll.getVisibility() == View.VISIBLE) {
+            hideChatPopup();
+            return;
+        }
         showChatPopup();
     }
 
@@ -3246,18 +3250,37 @@ public class MainActivity extends Activity {
                     : new ArrayList<>(experimentalCommands);
             listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan running...");
             diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan start. commands=" + commands);
+            int dataReplies = 0;
+            int noDataReplies = 0;
+            int okReplies = 0;
+            int failedReplies = 0;
             for (String cmd : commands) {
                 if (!running) break;
                 try {
                     String reply = command(cmd, 1400);
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compact(reply));
+                    String compactReply = compact(reply);
+                    String upper = compactReply.toUpperCase(Locale.US);
+                    if (upper.contains("NO DATA")) noDataReplies++;
+                    else if ("OK".equals(upper)) okReplies++;
+                    else if (!upper.trim().isEmpty()) dataReplies++;
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
                 } catch (Exception ex) {
+                    failedReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
                 }
                 Thread.sleep(80);
             }
-            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done.");
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan done. See debug log.");
+            String summary = "data=" + dataReplies + " noData=" + noDataReplies + " ok=" + okReplies + " failed=" + failedReplies;
+            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
+            if (running) {
+                try {
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
+                    initElm();
+                } catch (Exception ex) {
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
+                }
+            }
+            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " done: " + summary);
             listener.onExperimentalScanDone(experimentalScanFromPc);
         }
 
@@ -3628,18 +3651,37 @@ public class MainActivity extends Activity {
                     : new ArrayList<>(experimentalCommands);
             listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan running...");
             diag.log((experimentalScanFromPc ? "PC SAMPLE BLE" : "SAFE DTC BLE") + " scan start. commands=" + commands);
+            int dataReplies = 0;
+            int noDataReplies = 0;
+            int okReplies = 0;
+            int failedReplies = 0;
             for (String cmd : commands) {
                 if (!running) break;
                 try {
                     String reply = command(cmd, 1700);
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compact(reply));
+                    String compactReply = compact(reply);
+                    String upper = compactReply.toUpperCase(Locale.US);
+                    if (upper.contains("NO DATA")) noDataReplies++;
+                    else if ("OK".equals(upper)) okReplies++;
+                    else if (!upper.trim().isEmpty()) dataReplies++;
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
                 } catch (Exception ex) {
+                    failedReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
                 }
                 Thread.sleep(120);
             }
-            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done.");
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan done. See debug log.");
+            String summary = "data=" + dataReplies + " noData=" + noDataReplies + " ok=" + okReplies + " failed=" + failedReplies;
+            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
+            if (running) {
+                try {
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
+                    initElm();
+                } catch (Exception ex) {
+                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
+                }
+            }
+            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " done: " + summary);
             listener.onExperimentalScanDone(experimentalScanFromPc);
         }
 
