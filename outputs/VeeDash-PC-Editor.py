@@ -569,6 +569,7 @@ class VeeDashHandler(BaseHTTPRequestHandler):
             self.send_json({
                 "app": "VeeDash",
                 "commands": obd_sample_commands(),
+                "seq": config_mtime(),
                 "updatedAt": config_mtime(),
             })
             return
@@ -1232,7 +1233,7 @@ class Editor(tk.Tk):
     def save_obd_samples(self):
         self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
         save_config(self.data)
-        self.info_text.set("OBD sample commands saved. Dash can fetch them from /obd-samples.")
+        self.info_text.set("OBD sample commands saved. Experiment-enabled dash will fetch and run the new sequence.")
 
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()

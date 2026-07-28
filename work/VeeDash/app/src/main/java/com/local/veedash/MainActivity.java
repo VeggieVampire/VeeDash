@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1000";
+    private static final String APP_VERSION = "2026.07.28-1010";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -136,6 +136,7 @@ public class MainActivity extends Activity {
     private boolean destroyed = false;
     private boolean autoReconnectEnabled = true;
     private boolean experimentalObdEnabled = false;
+    private boolean pcSampleFetchInFlight = false;
     private boolean chatPopupEnabled = true;
     private long chatPopupMs = 6500;
     private boolean autoDimEnabled = true;
@@ -151,6 +152,7 @@ public class MainActivity extends Activity {
     private String lastConfig = "";
     private String lastConfigVersion = "-";
     private String lastPullCommand = "";
+    private String lastPcSampleSeq = "";
     private String lastBackgroundAsset = "";
     private String pcHost = DEFAULT_PC_HOST;
     private int pcPort = DEFAULT_PC_PORT;
@@ -178,6 +180,7 @@ public class MainActivity extends Activity {
             applyAutoDim();
             fetchRemoteMessage();
             fetchRemoteConfig(false);
+            pollPcSamplesIfExperimentOn();
             ui.postDelayed(this, 2200);
         }
     };
@@ -584,7 +587,7 @@ public class MainActivity extends Activity {
         }
         popupChat("Fetching PC OBD samples.\nRaw replies will go to debug log.");
         addDiag("PC sample scan requested from " + obdSamplesUrl());
-        fetchPcSampleCommands();
+        fetchPcSampleCommands(true);
         hideConfigPanel();
     }
 
@@ -602,7 +605,14 @@ public class MainActivity extends Activity {
         return commands;
     }
 
-    private void fetchPcSampleCommands() {
+    private void pollPcSamplesIfExperimentOn() {
+        if (!experimentalObdEnabled || obdSession == null || pcSampleFetchInFlight) return;
+        fetchPcSampleCommands(false);
+    }
+
+    private void fetchPcSampleCommands(boolean forceRun) {
+        if (pcSampleFetchInFlight) return;
+        pcSampleFetchInFlight = true;
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
@@ -619,6 +629,11 @@ public class MainActivity extends Activity {
                 while ((line = reader.readLine()) != null) out.append(line);
                 reader.close();
                 JSONObject json = new JSONObject(out.toString());
+                String seq = json.optString("seq", json.optString("updatedAt", ""));
+                if (!forceRun && !seq.isEmpty() && seq.equals(lastPcSampleSeq)) {
+                    noteRemoteOk();
+                    return;
+                }
                 JSONArray array = json.optJSONArray("commands");
                 ArrayList<String> commands = new ArrayList<>();
                 if (array != null) {
@@ -630,6 +645,7 @@ public class MainActivity extends Activity {
                 if (commands.isEmpty()) commands.addAll(defaultSafeDtcCommands());
                 noteRemoteOk();
                 ui.post(() -> {
+                    if (!seq.isEmpty()) lastPcSampleSeq = seq;
                     addDiag("PC sample commands loaded: " + commands);
                     if (obdSession != null) obdSession.experimentalScan(commands, true);
                 });
@@ -639,6 +655,7 @@ public class MainActivity extends Activity {
                 ui.post(() -> popupChat("Could not fetch PC OBD samples.\n" + ex.getMessage()));
             } finally {
                 if (conn != null) conn.disconnect();
+                pcSampleFetchInFlight = false;
             }
         }, "VeeDashObdSamplesPull").start();
     }
