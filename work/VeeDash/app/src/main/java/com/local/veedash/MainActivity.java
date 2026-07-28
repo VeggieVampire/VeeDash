@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0935";
+    private static final String APP_VERSION = "2026.07.28-0945";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -479,7 +479,7 @@ public class MainActivity extends Activity {
         addMenuHeader("Debug");
         addMenuButton("Show / hide log", v -> toggleLog());
         addMenuButton("Sync Now", v -> pullNow());
-        addMenuButton("Experimental scan", v -> runExperimentalScan());
+        addMenuButton("Safe DTC scan", v -> runExperimentalScan());
         addMenuButton("Back", v -> showMenuHome());
     }
 
@@ -549,12 +549,12 @@ public class MainActivity extends Activity {
 
     private void runExperimentalScan() {
         if (obdSession == null) {
-            popupChat("Experimental scan needs an active VeePeak connection first.");
-            addDiag("Experimental scan skipped: no OBD session");
+            popupChat("Safe DTC scan needs an active VeePeak connection first.");
+            addDiag("Safe DTC scan skipped: no OBD session");
             return;
         }
-        popupChat("Experimental scan started.\nRaw replies will go to debug log.");
-        addDiag("Experimental scan requested");
+        popupChat("Safe DTC scan started.\nRaw replies will go to debug log.");
+        addDiag("Safe DTC scan requested");
         obdSession.experimentalScan();
         hideConfigPanel();
     }
@@ -3120,26 +3120,25 @@ public class MainActivity extends Activity {
         private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
             if (!experimentalScanRequested) return;
             experimentalScanRequested = false;
-            listener.onStatus("Experimental scan running...");
-            diag.log("EXPERIMENTAL scan start. Raw data only; Honda EPS may need module-specific commands.");
+            listener.onStatus("Safe DTC scan running...");
+            diag.log("SAFE DTC scan start. Standard OBD-II/ELM read commands only; Honda EPS may need a scanner with known Honda enhanced support.");
             String[] commands = new String[]{
                     "0101", "03", "07", "0A",
                     "ATDPN", "ATDP",
-                    "0600", "0902", "0904", "090A",
-                    "220001", "220101", "222001", "22F190", "22F18C", "22F18A"
+                    "0902", "0904", "090A"
             };
             for (String cmd : commands) {
                 if (!running) break;
                 try {
-                    String reply = command(cmd, cmd.startsWith("22") ? 1800 : 1400);
-                    diag.log("EXPERIMENTAL " + cmd + " => " + compact(reply));
+                    String reply = command(cmd, 1400);
+                    diag.log("SAFE DTC " + cmd + " => " + compact(reply));
                 } catch (Exception ex) {
-                    diag.log("EXPERIMENTAL " + cmd + " failed: " + ex.getMessage());
+                    diag.log("SAFE DTC " + cmd + " failed: " + ex.getMessage());
                 }
                 Thread.sleep(80);
             }
-            diag.log("EXPERIMENTAL scan done. If EPS light remains and no EPS/C-code appears, use Honda EPS-capable scanner data to add exact commands.");
-            listener.onStatus("Experimental scan done. See debug log.");
+            diag.log("SAFE DTC scan done. No unknown enhanced-module commands were sent.");
+            listener.onStatus("Safe DTC scan done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
@@ -3500,26 +3499,25 @@ public class MainActivity extends Activity {
         private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
             if (!experimentalScanRequested) return;
             experimentalScanRequested = false;
-            listener.onStatus("Experimental scan running...");
-            diag.log("EXPERIMENTAL BLE scan start. Raw data only; Honda EPS may need module-specific commands.");
+            listener.onStatus("Safe DTC scan running...");
+            diag.log("SAFE DTC BLE scan start. Standard OBD-II/ELM read commands only; Honda EPS may need a scanner with known Honda enhanced support.");
             String[] commands = new String[]{
                     "0101", "03", "07", "0A",
                     "ATDPN", "ATDP",
-                    "0600", "0902", "0904", "090A",
-                    "220001", "220101", "222001", "22F190", "22F18C", "22F18A"
+                    "0902", "0904", "090A"
             };
             for (String cmd : commands) {
                 if (!running) break;
                 try {
-                    String reply = command(cmd, cmd.startsWith("22") ? 2200 : 1700);
-                    diag.log("EXPERIMENTAL " + cmd + " => " + compact(reply));
+                    String reply = command(cmd, 1700);
+                    diag.log("SAFE DTC " + cmd + " => " + compact(reply));
                 } catch (Exception ex) {
-                    diag.log("EXPERIMENTAL " + cmd + " failed: " + ex.getMessage());
+                    diag.log("SAFE DTC " + cmd + " failed: " + ex.getMessage());
                 }
                 Thread.sleep(120);
             }
-            diag.log("EXPERIMENTAL scan done. If EPS light remains and no EPS/C-code appears, use Honda EPS-capable scanner data to add exact commands.");
-            listener.onStatus("Experimental scan done. See debug log.");
+            diag.log("SAFE DTC scan done. No unknown enhanced-module commands were sent.");
+            listener.onStatus("Safe DTC scan done. See debug log.");
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
