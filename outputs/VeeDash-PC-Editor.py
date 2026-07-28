@@ -705,7 +705,7 @@ class Editor(tk.Tk):
             self.mode_box.configure(values=["number", "graph", "both", "ring", "bar"], state="readonly")
             self.mode.set(item.get("mode", "number"))
         elif item.get("key") == "clock":
-            self.mode_box.configure(values=["time", "time_date", "yyyy_mm_dd_time", "date", "seconds", "compact"], state="readonly")
+            self.mode_box.configure(values=["time", "time_date", "yyyy_mm_dd_time", "yyyy_mm_dd_ampm", "date", "seconds", "compact"], state="readonly")
             self.mode.set(item.get("mode", "time"))
         else:
             self.mode_box.configure(state="disabled")
@@ -1174,6 +1174,9 @@ class Editor(tk.Tk):
         elif mode == "yyyy_mm_dd_time":
             primary = now.strftime("%Y/%m/%d")
             secondary = now.strftime("%H:%M")
+        elif mode == "yyyy_mm_dd_ampm":
+            primary = now.strftime("%Y/%m/%d")
+            secondary = now.strftime("%I:%M %p").lstrip("0")
         elif mode == "date":
             primary = now.strftime("%b %d")
             secondary = now.strftime("%Y")
