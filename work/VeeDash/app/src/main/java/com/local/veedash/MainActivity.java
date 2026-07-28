@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0745";
+    private static final String APP_VERSION = "2026.07.28-0755";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2534,14 +2534,18 @@ public class MainActivity extends Activity {
 
         private void applyReactiveDefaults() {
             if ("rpm".equals(pid)) {
-                valueMax = 6000f; midAt = 2500f; highAt = 4500f;
+                reactiveTint = true; valueMax = 6500f; midAt = 3500f; highAt = 5500f;
             } else if ("speed".equals(pid)) {
                 valueMax = 120f; midAt = 45f; highAt = 80f; scaleMax = 1.20f;
             } else if ("coolant".equals(pid)) {
                 valueMin = 60f; valueMax = 115f; midAt = 92f; highAt = 105f; reactiveTint = true; scaleMax = 1.20f;
             } else if ("volts".equals(pid)) {
-                valueMin = 11.5f; valueMax = 15f; midAt = 13f; highAt = 14.7f; scaleMax = 1.15f;
+                reactiveTint = true; valueMin = 11.5f; valueMax = 15f; midAt = 12.4f; highAt = 15f; scaleMax = 1.15f;
                 lowColor = 0xffff3b30; midColor = 0xff1fb6ff; highColor = 0xffffd166;
+            } else if ("load".equals(pid)) {
+                reactiveTint = true; valueMin = 0f; valueMax = 100f; midAt = 65f; highAt = 90f;
+            } else if ("throttle".equals(pid)) {
+                reactiveTint = true; valueMin = 0f; valueMax = 100f; midAt = 50f; highAt = 85f;
             }
         }
     }

@@ -148,6 +148,13 @@ GAUGE_LABELS = {
     "load": "Load",
     "throttle": "Throttle",
 }
+AUTO_TINT_PRESETS = {
+    "rpm": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 6500, "scaleMax": 1.25, "midAt": 3500, "highAt": 5500, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
+    "coolant": {"tint": True, "grow": False, "valueMin": 60, "valueMax": 115, "scaleMax": 1.20, "midAt": 92, "highAt": 105, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
+    "volts": {"tint": True, "grow": False, "valueMin": 11.5, "valueMax": 15.0, "scaleMax": 1.15, "midAt": 12.4, "highAt": 15.0, "lowColor": "#ff3b30", "midColor": "#1fb6ff", "highColor": "#ffd166"},
+    "load": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 100, "scaleMax": 1.25, "midAt": 65, "highAt": 90, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
+    "throttle": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 100, "scaleMax": 1.25, "midAt": 50, "highAt": 85, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
+}
 SAMPLE = {
     "rpm": 820,
     "speed": 0,
@@ -180,12 +187,12 @@ DEFAULT = {
     "backgroundImage": "",
     "backgroundAsset": "",
     "gauges": [
-        {"key": "rpm", "x": 0.18, "y": 0.34, "size": 0.28, "visible": True, "mode": "both", "layer": 20, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.25, "valueMin": 0, "valueMax": 6000, "tint": False, "midAt": 2500, "highAt": 4500, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
+        {"key": "rpm", "x": 0.18, "y": 0.34, "size": 0.28, "visible": True, "mode": "both", "layer": 20, "imageAsset": "", "reactive": AUTO_TINT_PRESETS["rpm"]},
         {"key": "speed", "x": 0.50, "y": 0.34, "size": 0.28, "visible": True, "mode": "number", "layer": 21, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.20, "valueMin": 0, "valueMax": 120, "tint": False, "midAt": 45, "highAt": 80, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
-        {"key": "coolant", "x": 0.82, "y": 0.34, "size": 0.24, "visible": True, "mode": "both", "layer": 22, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.20, "valueMin": 60, "valueMax": 115, "tint": True, "midAt": 92, "highAt": 105, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
-        {"key": "volts", "x": 0.22, "y": 0.72, "size": 0.22, "visible": True, "mode": "graph", "layer": 23, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.15, "valueMin": 11.5, "valueMax": 15.0, "tint": False, "midAt": 13.0, "highAt": 14.7, "lowColor": "#ff3b30", "midColor": "#1fb6ff", "highColor": "#ffd166"}},
-        {"key": "load", "x": 0.50, "y": 0.72, "size": 0.22, "visible": True, "mode": "both", "layer": 24, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.25, "valueMin": 0, "valueMax": 100, "tint": False, "midAt": 55, "highAt": 85, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
-        {"key": "throttle", "x": 0.78, "y": 0.72, "size": 0.22, "visible": True, "mode": "both", "layer": 25, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.25, "valueMin": 0, "valueMax": 100, "tint": False, "midAt": 35, "highAt": 70, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
+        {"key": "coolant", "x": 0.82, "y": 0.34, "size": 0.24, "visible": True, "mode": "both", "layer": 22, "imageAsset": "", "reactive": AUTO_TINT_PRESETS["coolant"]},
+        {"key": "volts", "x": 0.22, "y": 0.72, "size": 0.22, "visible": True, "mode": "graph", "layer": 23, "imageAsset": "", "reactive": AUTO_TINT_PRESETS["volts"]},
+        {"key": "load", "x": 0.50, "y": 0.72, "size": 0.22, "visible": True, "mode": "both", "layer": 24, "imageAsset": "", "reactive": AUTO_TINT_PRESETS["load"]},
+        {"key": "throttle", "x": 0.78, "y": 0.72, "size": 0.22, "visible": True, "mode": "both", "layer": 25, "imageAsset": "", "reactive": AUTO_TINT_PRESETS["throttle"]},
     ],
     "overlays": [
         {"key": "chat", "type": "chat", "x": 0.80, "y": 0.83, "w": 0.28, "h": 0.18, "visible": True, "layer": 80},
@@ -665,6 +672,8 @@ class Editor(tk.Tk):
         self.reactive_tint = tk.BooleanVar(value=False)
         ttk.Checkbutton(item_tab, text="Grow with value", variable=self.reactive_grow, command=self.changed).pack(anchor="w")
         ttk.Checkbutton(item_tab, text="Tint by thresholds", variable=self.reactive_tint, command=self.changed).pack(anchor="w")
+        ttk.Button(item_tab, text="Auto tint selected gauge", command=self.apply_auto_tint_selected).pack(fill=tk.X, pady=(6, 2))
+        ttk.Button(item_tab, text="Auto tint all known gauges", command=self.apply_auto_tint_all).pack(fill=tk.X, pady=2)
         for name, label, lo, hi in [
             ("valueMin", "Low/min value", 0, 8000),
             ("valueMax", "High/max value", 1, 8000),
@@ -880,6 +889,36 @@ class Editor(tk.Tk):
             reactive[key] = color
             self.save_all(silent=True)
             self.draw_preview()
+
+    def apply_auto_tint_selected(self):
+        item, kind = self.item()
+        if kind != "gauge":
+            self.info_text.set("Auto tint works on gauges.")
+            return
+        if self.apply_auto_tint(item):
+            self.load_selected()
+            self.save_all(silent=True)
+            self.info_text.set(f"Auto tint applied to {item.get('label', item.get('key', 'gauge'))}.")
+        else:
+            self.info_text.set("No auto tint preset for that data source.")
+
+    def apply_auto_tint_all(self):
+        count = 0
+        for gauge in self.data.get("gauges", []):
+            if self.apply_auto_tint(gauge):
+                count += 1
+        self.load_selected()
+        self.save_all(silent=True)
+        self.info_text.set(f"Auto tint applied to {count} known gauge(s).")
+
+    def apply_auto_tint(self, gauge):
+        pid = gauge.get("pid", gauge.get("key", "")).lower()
+        preset = AUTO_TINT_PRESETS.get(pid)
+        if not preset:
+            return False
+        reactive = gauge.setdefault("reactive", {})
+        reactive.update(json.loads(json.dumps(preset)))
+        return True
 
     def pick_background(self):
         path = filedialog.askopenfilename(filetypes=[("Images", "*.gif *.png *.jpg *.jpeg *.webp *.bmp"), ("All files", "*.*")])
