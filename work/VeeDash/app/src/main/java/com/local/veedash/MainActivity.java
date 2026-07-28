@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0825";
+    private static final String APP_VERSION = "2026.07.28-0850";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -149,6 +149,7 @@ public class MainActivity extends Activity {
     private boolean lastConnectedBle = false;
     private String lastConfig = "";
     private String lastConfigVersion = "-";
+    private String lastPullCommand = "";
     private String lastBackgroundAsset = "";
     private String pcHost = DEFAULT_PC_HOST;
     private int pcPort = DEFAULT_PC_PORT;
@@ -924,9 +925,18 @@ public class MainActivity extends Activity {
                 reader.close();
                 String message = out.toString().trim();
                 noteRemoteOk();
-                if (!message.isEmpty() && !message.equals(coachMessage)) {
+                String pullCommand = pullCommandFromMessage(message);
+                String displayMessage = displayMessageFromWire(message);
+                if (!pullCommand.isEmpty() && !pullCommand.equals(lastPullCommand)) {
+                    lastPullCommand = pullCommand;
                     ui.post(() -> {
-                        popupChat(message);
+                        addDiag("PC push command received: " + pullCommand);
+                        popupChat(displayMessage.isEmpty() ? "PC editor pushed a dashboard update.\nPulling newest config now." : displayMessage);
+                        fetchRemoteConfig(true);
+                    });
+                } else if (!displayMessage.isEmpty() && !displayMessage.equals(coachMessage)) {
+                    ui.post(() -> {
+                        popupChat(displayMessage);
                     });
                 }
             } catch (Exception ignored) {
@@ -935,6 +945,29 @@ public class MainActivity extends Activity {
                 if (conn != null) conn.disconnect();
             }
         }, "VeeDashMessagePull").start();
+    }
+
+    private String pullCommandFromMessage(String message) {
+        if (message == null || message.isEmpty()) return "";
+        String[] lines = message.split("\\r?\\n");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("VEEDASH_PULL_NOW=")) return trimmed;
+        }
+        return "";
+    }
+
+    private String displayMessageFromWire(String message) {
+        if (message == null || message.isEmpty()) return "";
+        String[] lines = message.split("\\r?\\n");
+        StringBuilder clean = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("VEEDASH_PULL_NOW=")) continue;
+            if (clean.length() > 0) clean.append('\n');
+            clean.append(line);
+        }
+        return clean.toString().trim();
     }
 
     private void fetchRemoteConfig(boolean forceApply) {

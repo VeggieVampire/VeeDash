@@ -1247,14 +1247,16 @@ class Editor(tk.Tk):
 
     def push_dash_now(self):
         stamp_value = datetime.now().isoformat(timespec="seconds")
+        self.changed()
         self.data["dashClientIp"] = self.dash_client_ip.get().strip()
         self.data["forcePushAt"] = stamp_value
         save_config(self.data)
         message = "Connected to PC editor. Force loading the newest staged dashboard now."
-        MESSAGE.write_text(message, encoding="utf-8")
+        wire_message = f"{message}\nVEEDASH_PULL_NOW={stamp_value}"
+        MESSAGE.write_text(wire_message, encoding="utf-8")
         self.message.delete("1.0", "end")
         self.message.insert("1.0", message)
-        self.info_text.set("Push queued. Waiting for the dash to pull the forced config.")
+        self.info_text.set("Push sent. Dash chat will command an immediate config pull.")
 
     def save_network_fields(self):
         self.data["dashClientIp"] = self.dash_client_ip.get().strip()
