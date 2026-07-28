@@ -745,7 +745,7 @@ class Editor(tk.Tk):
         self.reactive_image_grow = tk.BooleanVar(value=False)
         self.reactive_tint = tk.BooleanVar(value=False)
         ttk.Checkbutton(item_tab, text="Grow with value", variable=self.reactive_grow, command=self.changed).pack(anchor="w")
-        ttk.Checkbutton(item_tab, text="Grow image with value", variable=self.reactive_image_grow, command=self.changed).pack(anchor="w")
+        ttk.Checkbutton(item_tab, text="Grow selected dial image only", variable=self.reactive_image_grow, command=self.changed).pack(anchor="w")
         ttk.Checkbutton(item_tab, text="Tint by thresholds", variable=self.reactive_tint, command=self.changed).pack(anchor="w")
         ttk.Button(item_tab, text="Auto tint selected gauge", command=self.apply_auto_tint_selected).pack(fill=tk.X, pady=(6, 2))
         ttk.Button(item_tab, text="Auto tint all known gauges", command=self.apply_auto_tint_all).pack(fill=tk.X, pady=2)
