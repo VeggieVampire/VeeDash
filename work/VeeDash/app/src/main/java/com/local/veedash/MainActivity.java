@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0850";
+    private static final String APP_VERSION = "2026.07.28-0900";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -425,12 +425,7 @@ public class MainActivity extends Activity {
                 final int index = i;
                 String label = deviceLabels.get(i);
                 String prefix = index == selectedDeviceIndex ? "Selected: " : "";
-                addMenuButton(prefix + label, v -> {
-                    selectDeviceIndex(index, true);
-                    rememberSelectedDeviceCandidate();
-                    popupChat("Selected Bluetooth adapter\n" + currentDeviceLabel());
-                    showBluetoothMenu();
-                });
+                addMenuButton(prefix + label, v -> selectDeviceIndexAndConnect(index));
             }
         }
         addMenuButton("Back", v -> showBluetoothMenu());
@@ -570,6 +565,21 @@ public class MainActivity extends Activity {
         }
         updateDeviceReadout();
         addDiag("Selected #" + (index + 1) + "/" + deviceChoices.size() + " " + currentDeviceLabel());
+    }
+
+    private void selectDeviceIndexAndConnect(int index) {
+        selectDeviceIndex(index, true);
+        if (selectedDevice == null) return;
+        rememberSelectedDeviceCandidate();
+        popupChat("Selected Bluetooth adapter\n" + currentDeviceLabel() + "\nConnecting now...");
+        hideConfigPanel();
+        if (obdSession != null) {
+            addDiag("Closing current OBD session before selected-device connect");
+            obdSession.close();
+            obdSession = null;
+        }
+        connecting = false;
+        connectSelectedDevice(true);
     }
 
     private void loadSavedConnection() {
