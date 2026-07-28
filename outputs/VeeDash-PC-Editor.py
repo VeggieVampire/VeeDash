@@ -347,7 +347,7 @@ def obd_sample_commands(data=None):
     commands = []
     for line in text.splitlines():
         cmd = line.split("#", 1)[0].strip().upper().replace(" ", "")
-        if cmd and cmd not in commands:
+        if cmd:
             commands.append(cmd)
     return commands
 
