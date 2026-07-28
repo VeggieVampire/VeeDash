@@ -11,7 +11,7 @@ import tkinter as tk
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from tkinter import colorchooser, filedialog, ttk
+from tkinter import colorchooser, filedialog, simpledialog, ttk
 from urllib.parse import parse_qs, unquote
 
 try:
@@ -140,6 +140,14 @@ WELCOME_MESSAGES = [
 ]
 
 GAUGE_KEYS = ["rpm", "speed", "coolant", "volts", "load", "throttle"]
+GAUGE_LABELS = {
+    "rpm": "RPM",
+    "speed": "MPH",
+    "coolant": "Coolant",
+    "volts": "Volts",
+    "load": "Load",
+    "throttle": "Throttle",
+}
 SAMPLE = {
     "rpm": 820,
     "speed": 0,
@@ -180,10 +188,10 @@ DEFAULT = {
         {"key": "throttle", "x": 0.78, "y": 0.72, "size": 0.22, "visible": True, "mode": "both", "layer": 25, "imageAsset": "", "reactive": {"grow": False, "scaleMax": 1.25, "valueMin": 0, "valueMax": 100, "tint": False, "midAt": 35, "highAt": 70, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"}},
     ],
     "overlays": [
-        {"key": "chat", "x": 0.80, "y": 0.83, "w": 0.28, "h": 0.18, "visible": True, "layer": 80},
-        {"key": "log", "x": 0.30, "y": 0.30, "w": 0.52, "h": 0.36, "visible": True, "layer": 70},
-        {"key": "clock", "x": 0.82, "y": 0.12, "w": 0.24, "h": 0.12, "visible": True, "layer": 60, "mode": "time"},
-        {"key": "date", "x": 0.82, "y": 0.23, "w": 0.24, "h": 0.10, "visible": True, "layer": 59, "mode": "yyyy_mm_dd"},
+        {"key": "chat", "type": "chat", "x": 0.80, "y": 0.83, "w": 0.28, "h": 0.18, "visible": True, "layer": 80},
+        {"key": "log", "type": "log", "x": 0.30, "y": 0.30, "w": 0.52, "h": 0.36, "visible": True, "layer": 70},
+        {"key": "clock", "type": "clock", "x": 0.82, "y": 0.12, "w": 0.24, "h": 0.12, "visible": True, "layer": 60, "mode": "time"},
+        {"key": "date", "type": "date", "x": 0.82, "y": 0.23, "w": 0.24, "h": 0.10, "visible": True, "layer": 59, "mode": "yyyy_mm_dd"},
     ],
 }
 
@@ -211,11 +219,16 @@ def normalize(data):
             data.setdefault(key, value)
     if not data.get("backgroundAsset") and data.get("backgroundImage"):
         data["backgroundAsset"] = Path(data["backgroundImage"]).name
-    existing = {g.get("key"): g for g in data.get("gauges", [])}
+    source_gauges = data.get("gauges") if "gauges" in data else DEFAULT["gauges"]
     data["gauges"] = []
-    for default_g in DEFAULT["gauges"]:
+    for index, source in enumerate(source_gauges):
+        pid = source.get("pid", source.get("key", DEFAULT["gauges"][0]["key"]))
+        default_g = next((item for item in DEFAULT["gauges"] if item["key"] == pid), DEFAULT["gauges"][0])
         g = dict(default_g)
-        g.update(existing.get(g["key"], {}))
+        g.update(source)
+        g.setdefault("key", f"{pid}_{index + 1}")
+        g.setdefault("pid", pid)
+        g.setdefault("label", GAUGE_LABELS.get(pid, pid.upper()))
         g.setdefault("mode", "number")
         g.setdefault("layer", default_g["layer"])
         g.setdefault("imageAsset", "")
@@ -223,14 +236,17 @@ def normalize(data):
         reactive.update(g.get("reactive", {}))
         g["reactive"] = reactive
         data["gauges"].append(g)
-    existing_o = {o.get("key"): o for o in data.get("overlays", [])}
+    source_overlays = data.get("overlays") if "overlays" in data else DEFAULT["overlays"]
     data["overlays"] = []
-    for default_o in DEFAULT["overlays"]:
+    for index, source in enumerate(source_overlays):
+        default_o = next((item for item in DEFAULT["overlays"] if item["key"] == source.get("key")), DEFAULT["overlays"][0])
         o = dict(default_o)
-        o.update(existing_o.get(o["key"], {}))
-        if o["key"] == "clock":
+        o.update(source)
+        o.setdefault("key", f"overlay_{index + 1}")
+        o.setdefault("type", o.get("key", "box").split("_", 1)[0])
+        if o.get("type") == "clock":
             o.setdefault("mode", "time")
-        if o["key"] == "date":
+        if o.get("type") == "date":
             o.setdefault("mode", "yyyy_mm_dd")
         data["overlays"].append(o)
 
@@ -656,6 +672,12 @@ class Editor(tk.Tk):
             ttk.Scale(left, from_=0.0, to=1.0, variable=var, command=lambda _v: self.alpha_changed()).pack(fill=tk.X)
 
         ttk.Separator(left).pack(fill=tk.X, pady=10)
+        ttk.Button(left, text="Add gauge", command=self.add_gauge).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="Add chat", command=lambda: self.add_overlay("chat")).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="Add log", command=lambda: self.add_overlay("log")).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="Add clock", command=lambda: self.add_overlay("clock")).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="Add date", command=lambda: self.add_overlay("date")).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="Delete selected item", command=self.delete_selected).pack(fill=tk.X, pady=(2, 10))
         ttk.Button(left, text="Bring forward", command=lambda: self.bump_layer(5)).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="Send backward", command=lambda: self.bump_layer(-5)).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="Reset default layout", command=self.reset_default).pack(fill=tk.X, pady=(10, 2))
@@ -690,7 +712,7 @@ class Editor(tk.Tk):
         ttk.Label(right, text="Drag items to move. Drag the small white corner handle to resize. Dial images/GIFs are staged to the dash and clipped to fill the whole dial.").pack(anchor="w")
 
     def item_keys(self):
-        return GAUGE_KEYS + ["chat", "log", "clock", "date"]
+        return [g["key"] for g in self.data["gauges"]] + [o["key"] for o in self.data["overlays"]]
 
     def item(self, key=None):
         key = key or self.selected.get()
@@ -700,17 +722,21 @@ class Editor(tk.Tk):
         for o in self.data["overlays"]:
             if o["key"] == key:
                 return o, "overlay"
-        return self.data["gauges"][0], "gauge"
+        if self.data["gauges"]:
+            return self.data["gauges"][0], "gauge"
+        if self.data["overlays"]:
+            return self.data["overlays"][0], "overlay"
+        return {"key": "", "x": 0.5, "y": 0.5, "w": 0.2, "h": 0.1, "visible": True, "layer": 20}, "overlay"
 
     def load_selected(self):
         item, kind = self.item()
         if kind == "gauge":
             self.mode_box.configure(values=["number", "graph", "both", "ring", "bar"], state="readonly")
             self.mode.set(item.get("mode", "number"))
-        elif item.get("key") == "clock":
+        elif item.get("type", item.get("key")) == "clock":
             self.mode_box.configure(values=["time", "time_date", "yyyy_mm_dd_time", "yyyy_mm_dd_ampm", "date", "seconds", "compact"], state="readonly")
             self.mode.set(item.get("mode", "time"))
-        elif item.get("key") == "date":
+        elif item.get("type", item.get("key")) == "date":
             self.mode_box.configure(values=["yyyy_mm_dd", "mm_dd_yyyy", "weekday_date", "short_date"], state="readonly")
             self.mode.set(item.get("mode", "yyyy_mm_dd"))
         else:
@@ -730,6 +756,8 @@ class Editor(tk.Tk):
 
     def changed(self):
         item, kind = self.item()
+        if not item.get("key"):
+            return
         item["x"] = round(self.vars["x"].get(), 3)
         item["y"] = round(self.vars["y"].get(), 3)
         item["visible"] = bool(self.visible.get())
@@ -745,7 +773,7 @@ class Editor(tk.Tk):
         else:
             item["w"] = round(self.vars["size"].get(), 3)
             item["h"] = round(max(0.10, self.vars["size"].get() * 0.55), 3)
-            if item.get("key") in ("clock", "date"):
+            if item.get("type", item.get("key")) in ("clock", "date"):
                 item["mode"] = self.mode.get()
         self.data["showLog"] = bool(self.show_log.get())
         self.data["showChat"] = bool(self.show_chat.get())
@@ -847,10 +875,84 @@ class Editor(tk.Tk):
 
     def bump_layer(self, delta):
         item, _kind = self.item()
+        if not item.get("key"):
+            return
         item["layer"] = int(item.get("layer", 20)) + delta
         self.vars["layer"].set(item["layer"])
         self.save_all(silent=True)
         self.draw_preview()
+
+    def refresh_item_box(self):
+        values = self.item_keys()
+        self.item_box.configure(values=values)
+        if values and self.selected.get() not in values:
+            self.selected.set(values[0])
+        elif not values:
+            self.selected.set("")
+
+    def unique_key(self, base):
+        base = re.sub(r"[^0-9A-Za-z_]+", "_", base).strip("_").lower() or "item"
+        existing = set(self.item_keys())
+        if base not in existing:
+            return base
+        index = 2
+        while f"{base}_{index}" in existing:
+            index += 1
+        return f"{base}_{index}"
+
+    def add_gauge(self):
+        current, kind = self.item()
+        default_pid = current.get("pid", current.get("key", "rpm")) if kind == "gauge" else "rpm"
+        pid = simpledialog.askstring(
+            "Add gauge",
+            "Data source: rpm, speed, coolant, volts, load, throttle",
+            initialvalue=default_pid if default_pid in GAUGE_KEYS else "rpm",
+            parent=self,
+        )
+        if not pid:
+            return
+        pid = pid.strip().lower()
+        if pid not in GAUGE_KEYS:
+            self.info_text.set(f"Unknown data source: {pid}")
+            return
+        template = next((g for g in DEFAULT["gauges"] if g["key"] == pid), DEFAULT["gauges"][0])
+        item = json.loads(json.dumps(template))
+        item["pid"] = pid
+        item["key"] = self.unique_key(pid)
+        item["label"] = GAUGE_LABELS.get(pid, pid.upper())
+        item["x"] = 0.5
+        item["y"] = 0.5
+        item["layer"] = max([g.get("layer", 20) for g in self.data["gauges"]] + [20]) + 1
+        self.data["gauges"].append(item)
+        self.selected.set(item["key"])
+        self.refresh_item_box()
+        self.load_selected()
+        self.save_all(silent=True)
+
+    def add_overlay(self, overlay_type):
+        template = next((o for o in DEFAULT["overlays"] if o["key"] == overlay_type), DEFAULT["overlays"][0])
+        item = json.loads(json.dumps(template))
+        item["key"] = self.unique_key(overlay_type)
+        item["type"] = overlay_type
+        item["x"] = 0.5
+        item["y"] = 0.5
+        item["layer"] = max([o.get("layer", 50) for o in self.data["overlays"]] + [50]) + 1
+        self.data["overlays"].append(item)
+        self.selected.set(item["key"])
+        self.refresh_item_box()
+        self.load_selected()
+        self.save_all(silent=True)
+
+    def delete_selected(self):
+        key = self.selected.get()
+        before_gauges = len(self.data["gauges"])
+        self.data["gauges"] = [g for g in self.data["gauges"] if g.get("key") != key]
+        self.data["overlays"] = [o for o in self.data["overlays"] if o.get("key") != key]
+        if before_gauges != len(self.data["gauges"]):
+            self.preview_images = {k: v for k, v in self.preview_images.items() if not (isinstance(k, tuple) and k[0] == key)}
+        self.refresh_item_box()
+        self.load_selected()
+        self.save_all(silent=True)
 
     def save_message(self):
         MESSAGE.write_text(self.message.get("1.0", "end").strip(), encoding="utf-8")
@@ -1130,13 +1232,13 @@ class Editor(tk.Tk):
                 continue
             if kind == "gauge":
                 self.draw_gauge(item, w, h, accent, fill)
-            elif item["key"] == "chat" and self.data.get("showChat", True):
+            elif item.get("type", item["key"]) == "chat" and self.data.get("showChat", True):
                 self.draw_box(item, w, h, "STATUS\nConnected\n\nCHAT\nMessage from PC", chat_fill)
-            elif item["key"] == "log" and self.data.get("showLog", True):
+            elif item.get("type", item["key"]) == "log" and self.data.get("showLog", True):
                 self.draw_box(item, w, h, "DEBUG STATUS\nphase: connected\nrpm: 820\nvolts: 14.2", log_fill)
-            elif item["key"] == "clock":
+            elif item.get("type", item["key"]) == "clock":
                 self.draw_clock(item, w, h, chat_fill, accent)
-            elif item["key"] == "date":
+            elif item.get("type", item["key"]) == "date":
                 self.draw_date(item, w, h, chat_fill, accent)
 
     def blend(self, fg, alpha, bg):
@@ -1229,7 +1331,8 @@ class Editor(tk.Tk):
             self.canvas.create_rectangle(hx - 6, hy - 6, hx + 6, hy + 6, fill="#ffffff", outline="#111111")
 
     def draw_gauge(self, g, w, h, accent, fill):
-        value = SAMPLE.get(g["key"], 0)
+        pid = g.get("pid", g["key"])
+        value = SAMPLE.get(pid, 0)
         reactive = g.get("reactive", {})
         scale = self.reactive_scale(reactive, value)
         tint = self.reactive_tint_color(reactive, value)
@@ -1252,7 +1355,7 @@ class Editor(tk.Tk):
             self.draw_bar(x, y, r, accent, fill, value)
         if mode in ("number", "both", "ring", "bar"):
             self.canvas.create_text(x, y - r * 0.06, text=f"{value:.0f}", fill="white", font=("Segoe UI", int(max(14, r * 0.32)), "bold"))
-        self.canvas.create_text(x, y + r * 0.38, text=g["key"].upper(), fill="#cfefff", font=("Segoe UI", int(max(9, r * 0.13)), "bold"))
+        self.canvas.create_text(x, y + r * 0.38, text=g.get("label", GAUGE_LABELS.get(pid, pid.upper())), fill="#cfefff", font=("Segoe UI", int(max(9, r * 0.13)), "bold"))
         if selected:
             self.canvas.create_rectangle(x-r-4, y-r-4, x+r+4, y+r+4, outline="#ffffff", dash=(4, 3))
             hx, hy = self.resize_handle(g, "gauge", w, h)

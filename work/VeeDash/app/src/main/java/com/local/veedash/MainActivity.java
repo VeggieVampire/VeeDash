@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0730";
+    private static final String APP_VERSION = "2026.07.28-0745";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -1064,8 +1064,10 @@ public class MainActivity extends Activity {
             lastConfig = config;
             lastConfigVersion = json.optString("updatedAt", json.optString("version", String.valueOf(System.currentTimeMillis())));
             String backgroundAsset = json.optString("backgroundAsset", json.optString("backgroundImage", ""));
-            if (json.has("showLog") && diagScroll != null) diagScroll.setVisibility(json.optBoolean("showLog", true) ? View.VISIBLE : View.GONE);
-            chatPopupEnabled = json.optBoolean("showChat", chatPopupEnabled);
+            boolean hasLogOverlay = applyViewOverlay(json, "log", diagScroll, 0.30f, 0.30f, 0.52f, 0.36f);
+            boolean hasChatOverlay = applyViewOverlay(json, "chat", coachView, 0.80f, 0.83f, 0.28f, 0.18f);
+            if (diagScroll != null) diagScroll.setVisibility(json.optBoolean("showLog", true) && hasLogOverlay ? View.VISIBLE : View.GONE);
+            chatPopupEnabled = json.optBoolean("showChat", chatPopupEnabled) && hasChatOverlay;
             chatPopupMs = Math.max(2000, Math.min(15000, Math.round(json.optDouble("chatPopupSeconds", chatPopupMs / 1000.0) * 1000.0)));
             if (!chatPopupEnabled) hideChatPopup();
             autoReconnectEnabled = json.optBoolean("autoReconnect", autoReconnectEnabled);
@@ -1102,6 +1104,39 @@ public class MainActivity extends Activity {
         } catch (Exception ex) {
             addDiag("Config parse failed: " + ex.getMessage());
         }
+    }
+
+    private boolean applyViewOverlay(JSONObject config, String type, View view, float defaultX, float defaultY, float defaultW, float defaultH) {
+        if (view == null) return false;
+        JSONObject overlay = findOverlay(config, type);
+        if (overlay == null || !overlay.optBoolean("visible", true)) return false;
+        int screenW = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+        int screenH = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+        float x = (float) clamp01(overlay.optDouble("x", defaultX));
+        float y = (float) clamp01(overlay.optDouble("y", defaultY));
+        float w = (float) clamp01(overlay.optDouble("w", defaultW));
+        float h = (float) clamp01(overlay.optDouble("h", defaultH));
+        int width = Math.max(dp(90), Math.round(screenW * w));
+        int height = Math.max(dp(50), Math.round(screenH * h));
+        int left = Math.max(0, Math.min(screenW - width, Math.round(screenW * x - width / 2f)));
+        int top = Math.max(0, Math.min(screenH - height, Math.round(screenH * y - height / 2f)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height, Gravity.TOP | Gravity.LEFT);
+        params.leftMargin = left;
+        params.topMargin = top;
+        view.setLayoutParams(params);
+        return true;
+    }
+
+    private JSONObject findOverlay(JSONObject config, String type) {
+        JSONArray overlays = config.optJSONArray("overlays");
+        if (overlays == null) return null;
+        for (int i = 0; i < overlays.length(); i++) {
+            JSONObject overlay = overlays.optJSONObject(i);
+            if (overlay == null) continue;
+            String overlayType = overlay.optString("type", overlay.optString("key", ""));
+            if (type.equals(overlayType)) return overlay;
+        }
+        return null;
     }
 
     private void applyAutoDim() {
@@ -1806,6 +1841,7 @@ public class MainActivity extends Activity {
         private final Path clipPath = new Path();
         private final SharedPreferences prefs;
         private final List<Gauge> gauges = new ArrayList<>();
+        private final List<OverlayItem> overlays = new ArrayList<>();
         private final Map<String, Float> values = new LinkedHashMap<>();
         private final Map<String, ArrayList<Float>> history = new LinkedHashMap<>();
         private Bitmap background;
@@ -1820,18 +1856,6 @@ public class MainActivity extends Activity {
         private float backgroundDimAlpha = 0.80f;
         private boolean autoDimActive;
         private float autoDimAlpha;
-        private boolean clockVisible = true;
-        private float clockX = 0.82f;
-        private float clockY = 0.12f;
-        private float clockW = 0.24f;
-        private float clockH = 0.12f;
-        private String clockMode = "time";
-        private boolean dateVisible = true;
-        private float dateX = 0.82f;
-        private float dateY = 0.23f;
-        private float dateW = 0.24f;
-        private float dateH = 0.10f;
-        private String dateMode = "yyyy_mm_dd";
         private Gauge active;
         private long lastTapTime;
         private Gauge lastTapGauge;
@@ -1900,15 +1924,24 @@ public class MainActivity extends Activity {
             backgroundDimAlpha = clamp((float) json.optDouble("backgroundDimAlpha", backgroundDimAlpha), 0f, 1f);
             JSONArray arr = json.optJSONArray("gauges");
             if (arr != null) {
+                gauges.clear();
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject g = arr.getJSONObject(i);
-                    Gauge gauge = gaugeByKey(g.optString("key", ""));
-                    if (gauge == null) continue;
+                    String pid = normalizeGaugePid(g.optString("pid", g.optString("key", "rpm")));
+                    Gauge gauge = new Gauge(
+                            g.optString("key", pid),
+                            g.optString("label", defaultGaugeLabel(pid)),
+                            pid,
+                            clamp((float) g.optDouble("x", 0.5), 0.06f, 0.94f),
+                            clamp((float) g.optDouble("y", 0.5), 0.12f, 0.92f),
+                            clamp((float) g.optDouble("size", 0.22), 0.06f, 0.48f),
+                            g.optBoolean("visible", true));
                     if (g.has("x")) gauge.x = clamp((float) g.getDouble("x"), 0.06f, 0.94f);
                     if (g.has("y")) gauge.y = clamp((float) g.getDouble("y"), 0.12f, 0.92f);
                     if (g.has("size")) gauge.size = clamp((float) g.getDouble("size"), 0.06f, 0.48f);
                     if (g.has("mode")) gauge.mode = g.optString("mode", gauge.mode);
                     if (g.has("visible")) gauge.visible = g.optBoolean("visible", true);
+                    if (g.has("layer")) gauge.layer = g.optInt("layer", gauge.layer);
                     if (g.has("imageAsset")) gauge.imageAsset = g.optString("imageAsset", "");
                     JSONObject reactive = g.optJSONObject("reactive");
                     if (reactive != null) {
@@ -1923,28 +1956,29 @@ public class MainActivity extends Activity {
                         gauge.midColor = parseColor(reactive.optString("midColor", ""), gauge.midColor);
                         gauge.highColor = parseColor(reactive.optString("highColor", ""), gauge.highColor);
                     }
+                    gauges.add(gauge);
+                    loadGaugeArt(gauge.key);
                 }
             }
             JSONArray overlays = json.optJSONArray("overlays");
+            this.overlays.clear();
             if (overlays != null) {
                 for (int i = 0; i < overlays.length(); i++) {
                     JSONObject overlay = overlays.optJSONObject(i);
                     if (overlay == null) continue;
-                    String key = overlay.optString("key", "");
-                    if ("clock".equals(key)) {
-                        clockX = clamp((float) overlay.optDouble("x", clockX), 0.02f, 0.98f);
-                        clockY = clamp((float) overlay.optDouble("y", clockY), 0.06f, 0.96f);
-                        clockW = clamp((float) overlay.optDouble("w", clockW), 0.08f, 0.90f);
-                        clockH = clamp((float) overlay.optDouble("h", clockH), 0.06f, 0.70f);
-                        clockVisible = overlay.optBoolean("visible", clockVisible);
-                        clockMode = overlay.optString("mode", clockMode);
-                    } else if ("date".equals(key)) {
-                        dateX = clamp((float) overlay.optDouble("x", dateX), 0.02f, 0.98f);
-                        dateY = clamp((float) overlay.optDouble("y", dateY), 0.06f, 0.96f);
-                        dateW = clamp((float) overlay.optDouble("w", dateW), 0.08f, 0.90f);
-                        dateH = clamp((float) overlay.optDouble("h", dateH), 0.05f, 0.70f);
-                        dateVisible = overlay.optBoolean("visible", dateVisible);
-                        dateMode = overlay.optString("mode", dateMode);
+                    String type = overlay.optString("type", overlay.optString("key", ""));
+                    if ("clock".equals(type) || "date".equals(type)) {
+                        OverlayItem item = new OverlayItem();
+                        item.key = overlay.optString("key", type);
+                        item.type = type;
+                        item.x = clamp((float) overlay.optDouble("x", 0.5), 0.02f, 0.98f);
+                        item.y = clamp((float) overlay.optDouble("y", 0.5), 0.06f, 0.96f);
+                        item.w = clamp((float) overlay.optDouble("w", "clock".equals(type) ? 0.24f : 0.24f), 0.08f, 0.90f);
+                        item.h = clamp((float) overlay.optDouble("h", "clock".equals(type) ? 0.12f : 0.10f), 0.05f, 0.70f);
+                        item.visible = overlay.optBoolean("visible", true);
+                        item.layer = overlay.optInt("layer", "clock".equals(type) ? 60 : 59);
+                        item.mode = overlay.optString("mode", "clock".equals(type) ? "time" : "yyyy_mm_dd");
+                        this.overlays.add(item);
                     }
                 }
             }
@@ -2022,6 +2056,27 @@ public class MainActivity extends Activity {
             if (save) saveLayout();
         }
 
+        private String normalizeGaugePid(String value) {
+            String key = value == null ? "" : value.toLowerCase(Locale.US);
+            if (key.startsWith("rpm")) return "rpm";
+            if (key.startsWith("speed")) return "speed";
+            if (key.startsWith("coolant")) return "coolant";
+            if (key.startsWith("volts")) return "volts";
+            if (key.startsWith("load")) return "load";
+            if (key.startsWith("throttle")) return "throttle";
+            return key.isEmpty() ? "rpm" : key;
+        }
+
+        private String defaultGaugeLabel(String pid) {
+            if ("rpm".equals(pid)) return "RPM";
+            if ("speed".equals(pid)) return "MPH";
+            if ("coolant".equals(pid)) return "Coolant";
+            if ("volts".equals(pid)) return "Volts";
+            if ("load".equals(pid)) return "Load";
+            if ("throttle".equals(pid)) return "Throttle";
+            return pid == null ? "" : pid.toUpperCase(Locale.US);
+        }
+
         private Gauge loadGauge(String key, String label, String pid, float x, float y, float size) {
             Gauge gauge = new Gauge(
                     key,
@@ -2058,9 +2113,10 @@ public class MainActivity extends Activity {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             drawBackground(canvas);
-            for (Gauge gauge : gauges) drawGauge(canvas, gauge);
-            drawClock(canvas);
-            drawDate(canvas);
+            for (int layer = 0; layer <= 120; layer++) {
+                for (Gauge gauge : gauges) if (gauge.layer == layer) drawGauge(canvas, gauge);
+                for (OverlayItem overlay : overlays) if (overlay.layer == layer) drawOverlay(canvas, overlay);
+            }
             drawAutoDim(canvas);
             if (editMode) drawEditHint(canvas);
         }
@@ -2156,12 +2212,17 @@ public class MainActivity extends Activity {
             paint.setTypeface(Typeface.DEFAULT);
         }
 
-        private void drawClock(Canvas canvas) {
-            if (!clockVisible) return;
-            float cx = clockX * getWidth();
-            float cy = clockY * getHeight();
-            float w = clockW * getWidth();
-            float h = clockH * getHeight();
+        private void drawOverlay(Canvas canvas, OverlayItem overlay) {
+            if (!overlay.visible) return;
+            if ("clock".equals(overlay.type)) drawClock(canvas, overlay);
+            else if ("date".equals(overlay.type)) drawDate(canvas, overlay);
+        }
+
+        private void drawClock(Canvas canvas, OverlayItem overlay) {
+            float cx = overlay.x * getWidth();
+            float cy = overlay.y * getHeight();
+            float w = overlay.w * getWidth();
+            float h = overlay.h * getHeight();
             RectF box = new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
@@ -2172,22 +2233,21 @@ public class MainActivity extends Activity {
             paint.setColor(accentColor);
             canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
 
-            String[] lines = clockLines();
+            String[] lines = clockLines(overlay.mode);
             float primarySize = Math.max(16f, h * (lines[1].isEmpty() ? 0.50f : 0.42f));
             float primaryY = lines[1].isEmpty() ? cy + primarySize * 0.34f : cy - h * 0.02f;
             drawOutlinedText(canvas, lines[0], cx, primaryY, primarySize, Color.WHITE, primarySize * 0.08f);
             if (!lines[1].isEmpty()) {
                 drawOutlinedText(canvas, lines[1], cx, cy + h * 0.32f, Math.max(10f, h * 0.17f), 0xffd8f6ff, h * 0.01f);
             }
-            postInvalidateDelayed("seconds".equals(clockMode) ? 250 : 15000);
+            postInvalidateDelayed("seconds".equals(overlay.mode) ? 250 : 15000);
         }
 
-        private void drawDate(Canvas canvas) {
-            if (!dateVisible) return;
-            float cx = dateX * getWidth();
-            float cy = dateY * getHeight();
-            float w = dateW * getWidth();
-            float h = dateH * getHeight();
+        private void drawDate(Canvas canvas, OverlayItem overlay) {
+            float cx = overlay.x * getWidth();
+            float cy = overlay.y * getHeight();
+            float w = overlay.w * getWidth();
+            float h = overlay.h * getHeight();
             RectF box = new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
@@ -2197,41 +2257,41 @@ public class MainActivity extends Activity {
             paint.setStrokeWidth(Math.max(2f, h * 0.035f));
             paint.setColor(accentColor);
             canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
-            drawOutlinedText(canvas, dateText(), cx, cy + h * 0.16f, Math.max(12f, h * 0.42f), Color.WHITE, h * 0.035f);
+            drawOutlinedText(canvas, dateText(overlay.mode), cx, cy + h * 0.16f, Math.max(12f, h * 0.42f), Color.WHITE, h * 0.035f);
         }
 
-        private String dateText() {
+        private String dateText(String mode) {
             Date now = new Date();
-            if ("mm_dd_yyyy".equals(dateMode)) {
+            if ("mm_dd_yyyy".equals(mode)) {
                 return formatClock("MM/dd/yyyy", now);
             }
-            if ("weekday_date".equals(dateMode)) {
+            if ("weekday_date".equals(mode)) {
                 return formatClock("EEEE MMM d", now);
             }
-            if ("short_date".equals(dateMode)) {
+            if ("short_date".equals(mode)) {
                 return formatClock("MMM d", now);
             }
             return formatClock("yyyy/MM/dd", now);
         }
 
-        private String[] clockLines() {
+        private String[] clockLines(String mode) {
             Date now = new Date();
-            if ("time_date".equals(clockMode)) {
+            if ("time_date".equals(mode)) {
                 return new String[] { formatClock("h:mm", now), formatClock("EEE MMM d", now) };
             }
-            if ("yyyy_mm_dd_time".equals(clockMode)) {
+            if ("yyyy_mm_dd_time".equals(mode)) {
                 return new String[] { formatClock("yyyy/MM/dd", now), formatClock("HH:mm", now) };
             }
-            if ("yyyy_mm_dd_ampm".equals(clockMode)) {
+            if ("yyyy_mm_dd_ampm".equals(mode)) {
                 return new String[] { formatClock("yyyy/MM/dd", now), formatClock("h:mm a", now) };
             }
-            if ("date".equals(clockMode)) {
+            if ("date".equals(mode)) {
                 return new String[] { formatClock("MMM d", now), formatClock("yyyy", now) };
             }
-            if ("seconds".equals(clockMode)) {
+            if ("seconds".equals(mode)) {
                 return new String[] { formatClock("h:mm:ss", now), formatClock("a", now) };
             }
-            if ("compact".equals(clockMode)) {
+            if ("compact".equals(mode)) {
                 return new String[] { formatClock("HHmm", now), "" };
             }
             return new String[] { formatClock("h:mm", now), formatClock("a", now) };
@@ -2439,6 +2499,7 @@ public class MainActivity extends Activity {
         float y;
         float size;
         boolean visible;
+        int layer = 20;
         String imageAsset = "";
         String mode = "number";
         String loadedAsset = "";
@@ -2483,6 +2544,18 @@ public class MainActivity extends Activity {
                 lowColor = 0xffff3b30; midColor = 0xff1fb6ff; highColor = 0xffffd166;
             }
         }
+    }
+
+    private static class OverlayItem {
+        String key = "";
+        String type = "";
+        float x = 0.5f;
+        float y = 0.5f;
+        float w = 0.24f;
+        float h = 0.12f;
+        boolean visible = true;
+        int layer = 60;
+        String mode = "";
     }
 
     private static class DeviceChoice {
