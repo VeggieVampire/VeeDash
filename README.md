@@ -21,7 +21,7 @@ This project was built for an older Android car radio, so it avoids accounts, cl
 - Live `DATA ...` lines in the dash debug log and Wi-Fi log feed.
 - Drag/resize gauge layout on the Android dash.
 - PC editor for staging layouts, graph/number/ring/bar modes, colors, transparency, and GIF/image assets.
-- Reactive gauge art: dial images/GIFs can grow as the car value rises.
+- Reactive animated gauge art: dial GIFs and images can grow as the car value rises.
 - Reactive tint/color bands: set low, mid, and high threshold numbers in the editor and have gauges change color when those values are reached.
 - Pull/push style local config sync over Wi-Fi.
 - Popup chat/status messages from the PC to the car dash.
@@ -29,13 +29,13 @@ This project was built for an older Android car radio, so it avoids accounts, cl
 
 ## Reactive Gauges
 
-Each gauge can use a still image or animated GIF as its dial art. In the PC editor, the reactive settings let you choose the value range that drives the effect:
+Each gauge can use an animated GIF or still image as its dial art. Animated GIFs play inside the round dial, fill the whole gauge area, and can react to live car values. In the PC editor, the reactive settings let you choose the value range that drives the effect:
 
-- `Value Min` and `Value Max` control how much the GIF/image grows as the reading increases.
+- `Value Min` and `Value Max` control how much the animated GIF or image grows as the reading increases.
 - `Low`, `Mid`, and `High` threshold numbers control when the gauge tint/color changes.
 - Separate low/mid/high colors can be picked per gauge, so RPM, coolant, voltage, load, and throttle can each warn differently.
 
-Example: coolant can stay blue under `92`, tint yellow above `92`, and turn red above `105`; RPM art can get larger as RPM climbs toward the max you set.
+Example: coolant can run an animated GIF inside the dial, stay blue under `92`, tint yellow above `92`, and turn red above `105`; RPM GIF art can get larger as RPM climbs toward the max you set.
 
 ## Build The APK
 
