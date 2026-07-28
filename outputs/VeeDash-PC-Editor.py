@@ -306,6 +306,7 @@ def normalize(data):
         g.setdefault("mode", "number")
         g.setdefault("layer", default_g["layer"])
         g.setdefault("barThickness", 0.20)
+        g.setdefault("showBorder", True)
         g.setdefault("imageAsset", "")
         reactive = dict(default_g.get("reactive", {}))
         reactive.update(g.get("reactive", {}))
@@ -319,6 +320,7 @@ def normalize(data):
         o.update(source)
         o.setdefault("key", f"overlay_{index + 1}")
         o.setdefault("type", o.get("key", "box").split("_", 1)[0])
+        o.setdefault("showBorder", True)
         if o.get("type") == "clock":
             o.setdefault("mode", "time")
         if o.get("type") == "date":
@@ -732,6 +734,8 @@ class Editor(tk.Tk):
 
         self.visible = tk.BooleanVar(value=True)
         ttk.Checkbutton(item_tab, text="Visible", variable=self.visible, command=self.changed).pack(anchor="w", pady=8)
+        self.show_border = tk.BooleanVar(value=True)
+        ttk.Checkbutton(item_tab, text="Show border", variable=self.show_border, command=self.changed).pack(anchor="w")
         ttk.Button(item_tab, text="Bring forward", command=lambda: self.bump_layer(5)).pack(fill=tk.X, pady=2)
         ttk.Button(item_tab, text="Send backward", command=lambda: self.bump_layer(-5)).pack(fill=tk.X, pady=2)
 
@@ -901,6 +905,7 @@ class Editor(tk.Tk):
         self.vars["barThickness"].set(item.get("barThickness", 0.20))
         self.vars["layer"].set(item.get("layer", 20))
         self.visible.set(item.get("visible", True))
+        self.show_border.set(item.get("showBorder", True))
         reactive = item.get("reactive", {}) if kind == "gauge" else {}
         self.reactive_grow.set(bool(reactive.get("grow", False)))
         self.reactive_tint.set(bool(reactive.get("tint", False)))
@@ -915,6 +920,7 @@ class Editor(tk.Tk):
         item["x"] = round(self.vars["x"].get(), 3)
         item["y"] = round(self.vars["y"].get(), 3)
         item["visible"] = bool(self.visible.get())
+        item["showBorder"] = bool(self.show_border.get())
         item["layer"] = int(round(self.vars["layer"].get()))
         if kind == "gauge":
             pid = self.label_to_pid(self.item_pid.get())
@@ -1103,6 +1109,7 @@ class Editor(tk.Tk):
         item["key"] = self.unique_key(name or pid)
         item["label"] = name or GAUGE_LABELS.get(pid, pid.upper())
         item["barThickness"] = 0.20
+        item["showBorder"] = True
         item["x"] = 0.5
         item["y"] = 0.5
         item["layer"] = max([g.get("layer", 20) for g in self.data["gauges"]] + [20]) + 1
@@ -1156,6 +1163,7 @@ class Editor(tk.Tk):
         item = json.loads(json.dumps(template))
         item["key"] = self.unique_key(overlay_type)
         item["type"] = overlay_type
+        item["showBorder"] = True
         item["x"] = 0.5
         item["y"] = 0.5
         item["layer"] = max([o.get("layer", 50) for o in self.data["overlays"]] + [50]) + 1
@@ -1486,7 +1494,7 @@ class Editor(tk.Tk):
         cy = item.get("y", 0.5) * h
         iw = item.get("w", 0.28) * w
         ih = item.get("h", 0.16) * h
-        outline = "#ffffff" if item["key"] == self.selected.get() else "#345"
+        outline = "#ffffff" if item["key"] == self.selected.get() else ("#345" if item.get("showBorder", True) else "")
         self.canvas.create_rectangle(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2, fill=color, outline=outline, width=2)
         self.canvas.create_text(cx - iw / 2 + 10, cy - ih / 2 + 8, text=text, anchor="nw", fill="white", font=("Segoe UI", 9, "bold"))
         if item["key"] == self.selected.get():
@@ -1521,7 +1529,7 @@ class Editor(tk.Tk):
         else:
             primary = now.strftime("%I:%M").lstrip("0")
             secondary = now.strftime("%p")
-        outline = "#ffffff" if item["key"] == self.selected.get() else "#345"
+        outline = "#ffffff" if item["key"] == self.selected.get() else ("#345" if item.get("showBorder", True) else "")
         self.canvas.create_rectangle(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2, fill=color, outline=outline, width=2)
         self.canvas.create_text(cx, cy - ih * 0.04, text=primary, anchor="center", fill="white", font=("Segoe UI", int(max(14, ih * 0.38)), "bold"))
         if secondary:
@@ -1545,7 +1553,7 @@ class Editor(tk.Tk):
             text = now.strftime("%b %d")
         else:
             text = now.strftime("%Y/%m/%d")
-        outline = "#ffffff" if item["key"] == self.selected.get() else "#345"
+        outline = "#ffffff" if item["key"] == self.selected.get() else ("#345" if item.get("showBorder", True) else "")
         self.canvas.create_rectangle(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2, fill=color, outline=outline, width=2)
         self.canvas.create_text(cx, cy, text=text, anchor="center", fill="white", font=("Segoe UI", int(max(12, ih * 0.38)), "bold"))
         if item["key"] == self.selected.get():
@@ -1568,14 +1576,14 @@ class Editor(tk.Tk):
             self.draw_bar(g, x, y, r, accent, fill, value, selected)
             return
         if mode in ("number", "both", "ring") or g.get("imageAsset"):
-            self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=fill, outline=accent, width=width)
+            self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=fill, outline=accent if g.get("showBorder", True) else "", width=width)
             dial_image = self.dial_preview_image(g, int(max(8, r * 2)))
             if dial_image:
                 self.canvas.create_image(x, y, image=dial_image)
             if tint:
                 self.canvas.create_oval(x-r, y-r, x+r, y+r, fill=tint, outline="", stipple="gray25")
         if mode in ("graph", "both"):
-            self.draw_graph(x, y, r, accent)
+            self.draw_graph(x, y, r, accent, g.get("showBorder", True))
         if mode in ("number", "both", "ring"):
             self.canvas.create_text(x, y - r * 0.06, text=f"{value:.0f}", fill="white", font=("Segoe UI", int(max(14, r * 0.32)), "bold"))
         self.canvas.create_text(x, y + r * 0.38, text=g.get("label", GAUGE_LABELS.get(pid, pid.upper())), fill="#cfefff", font=("Segoe UI", int(max(9, r * 0.13)), "bold"))
@@ -1637,13 +1645,13 @@ class Editor(tk.Tk):
         self.preview_refs.append(photo)
         return photo
 
-    def draw_graph(self, x, y, r, accent):
+    def draw_graph(self, x, y, r, accent, show_border=True):
         points = []
         for i in range(34):
             px = x - r * 0.75 + i * (r * 1.5 / 33)
             py = y + math.sin(i * 0.55 + time.time() * 2.0) * r * 0.22
             points.extend([px, py])
-        self.canvas.create_rectangle(x-r*0.78, y-r*0.38, x+r*0.78, y+r*0.38, outline="#28455a", fill="#061016")
+        self.canvas.create_rectangle(x-r*0.78, y-r*0.38, x+r*0.78, y+r*0.38, outline="#28455a" if show_border else "", fill="#061016")
         self.canvas.create_line(points, fill=accent, width=3, smooth=True)
 
     def draw_bar(self, g, x, y, r, accent, fill, value, selected):
@@ -1660,7 +1668,7 @@ class Editor(tk.Tk):
         x2 = x + bar_w / 2
         y1 = y - bar_h / 2
         y2 = y + bar_h / 2
-        self.canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline="#d8f6ff", width=2)
+        self.canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline="#d8f6ff" if g.get("showBorder", True) else "", width=2)
         self.canvas.create_rectangle(x1, y1, x1 + bar_w * pct, y2, fill=tint, outline="")
         self.canvas.create_text(x, y - bar_h * 0.95, text=f"{value:.0f}", fill="white", font=("Segoe UI", int(max(14, r * 0.36)), "bold"))
         pid = g.get("pid", g["key"])

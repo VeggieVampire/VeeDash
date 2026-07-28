@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-0815";
+    private static final String APP_VERSION = "2026.07.28-0820";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -2009,6 +2009,7 @@ public class MainActivity extends Activity {
                     if (g.has("size")) gauge.size = clamp((float) g.getDouble("size"), 0.06f, 0.48f);
                     if (g.has("mode")) gauge.mode = g.optString("mode", gauge.mode);
                     if (g.has("visible")) gauge.visible = g.optBoolean("visible", true);
+                    if (g.has("showBorder")) gauge.showBorder = g.optBoolean("showBorder", gauge.showBorder);
                     if (g.has("layer")) gauge.layer = g.optInt("layer", gauge.layer);
                     if (g.has("barThickness")) gauge.barThickness = clamp((float) g.optDouble("barThickness", gauge.barThickness), 0.08f, 0.50f);
                     if (g.has("imageAsset")) gauge.imageAsset = g.optString("imageAsset", "");
@@ -2045,6 +2046,7 @@ public class MainActivity extends Activity {
                         item.w = clamp((float) overlay.optDouble("w", "clock".equals(type) ? 0.24f : 0.24f), 0.08f, 0.90f);
                         item.h = clamp((float) overlay.optDouble("h", "clock".equals(type) ? 0.12f : 0.10f), 0.05f, 0.70f);
                         item.visible = overlay.optBoolean("visible", true);
+                        item.showBorder = overlay.optBoolean("showBorder", true);
                         item.layer = overlay.optInt("layer", "clock".equals(type) ? 60 : 59);
                         item.mode = overlay.optString("mode", "clock".equals(type) ? "time" : "yyyy_mm_dd");
                         this.overlays.add(item);
@@ -2259,10 +2261,12 @@ public class MainActivity extends Activity {
             canvas.drawCircle(cx, cy, r, paint);
             drawGaugeArt(canvas, gauge, cx, cy, r);
             drawReactiveTint(canvas, gauge, cx, cy, r, valueForStyle);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(3, r * 0.04f));
-            paint.setColor(accentColor);
-            canvas.drawCircle(cx, cy, r * 0.94f, paint);
+            if (gauge.showBorder) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(3, r * 0.04f));
+                paint.setColor(accentColor);
+                canvas.drawCircle(cx, cy, r * 0.94f, paint);
+            }
 
             paint.setStyle(Paint.Style.FILL);
             paint.setTextAlign(Paint.Align.CENTER);
@@ -2294,10 +2298,12 @@ public class MainActivity extends Activity {
             RectF back = new RectF(cx - barW / 2f, cy - barH / 2f, cx + barW / 2f, cy + barH / 2f);
             canvas.drawRoundRect(back, radius, radius, paint);
 
-            paint.setColor(alphaColor(0xffffff, 0x35));
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(2f, barH * 0.20f));
-            canvas.drawRoundRect(back, radius, radius, paint);
+            if (gauge.showBorder) {
+                paint.setColor(alphaColor(0xffffff, 0x35));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(2f, barH * 0.20f));
+                canvas.drawRoundRect(back, radius, radius, paint);
+            }
 
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(fillColor);
@@ -2351,10 +2357,12 @@ public class MainActivity extends Activity {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(alphaColor(0x06141d, 0xcc));
             canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(2f, h * 0.035f));
-            paint.setColor(accentColor);
-            canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+            if (overlay.showBorder) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(2f, h * 0.035f));
+                paint.setColor(accentColor);
+                canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+            }
 
             String[] lines = clockLines(overlay.mode);
             float primarySize = Math.max(16f, h * (lines[1].isEmpty() ? 0.50f : 0.42f));
@@ -2376,10 +2384,12 @@ public class MainActivity extends Activity {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(alphaColor(0x06141d, 0xcc));
             canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(2f, h * 0.035f));
-            paint.setColor(accentColor);
-            canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+            if (overlay.showBorder) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(2f, h * 0.035f));
+                paint.setColor(accentColor);
+                canvas.drawRoundRect(box, Math.max(3f, h * 0.08f), Math.max(3f, h * 0.08f), paint);
+            }
             drawOutlinedText(canvas, dateText(overlay.mode), cx, cy + h * 0.16f, Math.max(12f, h * 0.42f), Color.WHITE, h * 0.035f);
         }
 
@@ -2437,10 +2447,12 @@ public class MainActivity extends Activity {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(alphaColor(0x000000, compact ? 0x55 : 0x33));
             canvas.drawRoundRect(left, top, right, bottom, r * 0.04f, r * 0.04f, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1.5f, r * 0.015f));
-            paint.setColor(alphaColor(0xffffff, compact ? 0x22 : 0x55));
-            canvas.drawRoundRect(left, top, right, bottom, r * 0.04f, r * 0.04f, paint);
+            if (gauge.showBorder) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1.5f, r * 0.015f));
+                paint.setColor(alphaColor(0xffffff, compact ? 0x22 : 0x55));
+                canvas.drawRoundRect(left, top, right, bottom, r * 0.04f, r * 0.04f, paint);
+            }
             Path line = new Path();
             int count = series.size();
             for (int i = 0; i < count; i++) {
@@ -2626,6 +2638,7 @@ public class MainActivity extends Activity {
         boolean visible;
         int layer = 20;
         float barThickness = 0.20f;
+        boolean showBorder = true;
         String imageAsset = "";
         String mode = "number";
         String loadedAsset = "";
@@ -2684,6 +2697,7 @@ public class MainActivity extends Activity {
         float w = 0.24f;
         float h = 0.12f;
         boolean visible = true;
+        boolean showBorder = true;
         int layer = 60;
         String mode = "";
     }
