@@ -3,6 +3,7 @@ import math
 import re
 import shutil
 import socket
+import subprocess
 import threading
 import time
 import tkinter as tk
@@ -26,7 +27,9 @@ LOG_FILE = BASE / "VeeDash-live-log.txt"
 LAST_CLIENT = BASE / "VeeDash-last-client.txt"
 LAST_CONTACT = BASE / "VeeDash-last-contact.txt"
 LAST_CONFIG_SERVED = BASE / "VeeDash-last-config-served.txt"
+LAST_WELCOME = BASE / "VeeDash-last-welcome.txt"
 SERVER_PORT = 8766
+AWAY_SECONDS = 45
 
 GAUGE_KEYS = ["rpm", "speed", "coolant", "volts", "load", "throttle"]
 SAMPLE = {
@@ -168,6 +171,25 @@ def stamp(path, text=""):
     path.write_text(text or datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
 
 
+def note_dash_contact(ip, route):
+    if ip in ("127.0.0.1", "::1"):
+        return
+    now = datetime.now().isoformat(timespec="seconds")
+    previous_contact = file_mtime(LAST_CONTACT)
+    previous_welcome = file_mtime(LAST_WELCOME)
+    LAST_CLIENT.write_text(ip, encoding="utf-8")
+    stamp(LAST_CONTACT, f"{now} from={ip} {route}")
+    if previous_contact == 0 or time.time() - previous_contact > AWAY_SECONDS:
+        if previous_welcome < previous_contact or time.time() - previous_welcome > AWAY_SECONDS:
+            MESSAGE.write_text(
+                "Hello VeeDash, welcome back.\n"
+                "Connected to the PC editor.\n"
+                "Ready to send the staged dashboard.",
+                encoding="utf-8",
+            )
+            stamp(LAST_WELCOME, f"{now} welcomed {ip}")
+
+
 def background_asset_path():
     ensure_config()
     try:
@@ -220,9 +242,7 @@ class VeeDashHandler(BaseHTTPRequestHandler):
         now = datetime.now().isoformat(timespec="seconds")
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(f"{now} seq={seq} from={self.client_address[0]} {line}\n")
-        if not self.is_local_client():
-            LAST_CLIENT.write_text(self.client_address[0], encoding="utf-8")
-            stamp(LAST_CONTACT, f"{now} from={self.client_address[0]} log")
+        note_dash_contact(self.client_address[0], "log")
         self.send_response(204)
         self.end_headers()
 
@@ -230,9 +250,7 @@ class VeeDashHandler(BaseHTTPRequestHandler):
         route = self.path.split("?", 1)[0]
         if route == "/hello":
             now = datetime.now().isoformat(timespec="seconds")
-            if not self.is_local_client():
-                LAST_CLIENT.write_text(self.client_address[0], encoding="utf-8")
-                stamp(LAST_CONTACT, f"{now} from={self.client_address[0]} hello")
+            note_dash_contact(self.client_address[0], "hello")
             self.send_json({
                 "app": "VeeDash",
                 "role": "pc-server",
@@ -249,9 +267,8 @@ class VeeDashHandler(BaseHTTPRequestHandler):
         if route == "/config":
             ensure_config()
             now = datetime.now().isoformat(timespec="seconds")
+            note_dash_contact(self.client_address[0], "config")
             if not self.is_local_client():
-                LAST_CLIENT.write_text(self.client_address[0], encoding="utf-8")
-                stamp(LAST_CONTACT, f"{now} from={self.client_address[0]} config")
                 stamp(LAST_CONFIG_SERVED, f"{now} served config to {self.client_address[0]} version={config_mtime()}")
             self.send_text(CONFIG.read_text(encoding="utf-8", errors="replace"), "application/json; charset=utf-8")
             return
@@ -465,6 +482,16 @@ class Editor(tk.Tk):
             self.message.insert("1.0", MESSAGE.read_text(encoding="utf-8", errors="replace"))
         ttk.Button(left, text="Send chat", command=self.save_message).pack(fill=tk.X, pady=4)
 
+        ttk.Separator(left).pack(fill=tk.X, pady=10)
+        ttk.Label(left, text="Run local program").pack(anchor="w")
+        self.command_text = tk.Text(left, height=3, width=30)
+        self.command_text.pack(fill=tk.X)
+        self.command_text.insert("1.0", "python --version")
+        ttk.Button(left, text="Run command", command=self.run_command).pack(fill=tk.X, pady=4)
+        self.command_output = tk.Text(left, height=6, width=30)
+        self.command_output.pack(fill=tk.X)
+        self.command_output.insert("1.0", "Command output will appear here.")
+
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<ButtonPress-1>", self.start_drag)
@@ -625,6 +652,42 @@ class Editor(tk.Tk):
 
     def save_message(self):
         MESSAGE.write_text(self.message.get("1.0", "end").strip(), encoding="utf-8")
+
+    def run_command(self):
+        command = self.command_text.get("1.0", "end").strip()
+        if not command:
+            self.set_command_output("No command entered.")
+            return
+        self.set_command_output(f"Running from {BASE}:\n{command}\n\n")
+        threading.Thread(target=self.run_command_worker, args=(command,), daemon=True).start()
+
+    def run_command_worker(self, command):
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(BASE),
+                shell=True,
+                text=True,
+                capture_output=True,
+                timeout=60,
+            )
+            output = []
+            output.append(f"$ {command}")
+            output.append(f"exit code: {result.returncode}")
+            if result.stdout:
+                output.append("\nSTDOUT\n" + result.stdout.strip())
+            if result.stderr:
+                output.append("\nSTDERR\n" + result.stderr.strip())
+            text = "\n".join(output).strip()
+        except subprocess.TimeoutExpired:
+            text = f"$ {command}\nTimed out after 60 seconds."
+        except Exception as ex:
+            text = f"$ {command}\nFailed: {ex}"
+        self.after(0, lambda: self.set_command_output(text))
+
+    def set_command_output(self, text):
+        self.command_output.delete("1.0", "end")
+        self.command_output.insert("1.0", text)
 
     def save_all(self, silent=False):
         self.data["dashClientIp"] = self.dash_client_ip.get().strip()
