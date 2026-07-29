@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1210";
+    private static final String APP_VERSION = "2026.07.28-1230";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -183,7 +183,7 @@ public class MainActivity extends Activity {
             fetchRemoteMessage();
             fetchRemoteConfig(false);
             pollPcSamplesIfExperimentOn();
-            ui.postDelayed(this, 2200);
+            ui.postDelayed(this, experimentalObdEnabled ? 1100 : 2200);
         }
     };
 
@@ -3024,6 +3024,16 @@ public class MainActivity extends Activity {
         return out.toString();
     }
 
+    private static class ExperimentalBatch {
+        final ArrayList<String> commands;
+        final boolean pcSubmitted;
+
+        ExperimentalBatch(List<String> commands, boolean pcSubmitted) {
+            this.commands = commands == null ? new ArrayList<>() : new ArrayList<>(commands);
+            this.pcSubmitted = pcSubmitted;
+        }
+    }
+
     private static class ObdSession extends Thread implements ObdLink {
         private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
         private final BluetoothDevice device;
@@ -3037,8 +3047,8 @@ public class MainActivity extends Activity {
         private OutputStream output;
         private volatile boolean running = true;
         private volatile boolean experimentalScanRequested = false;
-        private volatile boolean experimentalScanFromPc = false;
-        private List<String> experimentalCommands = new ArrayList<>();
+        private final Object experimentalLock = new Object();
+        private final ArrayList<ExperimentalBatch> experimentalQueue = new ArrayList<>();
 
         ObdSession(BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, String selectedPin, boolean autoTry, PollPidSource pollPidSource) {
             this.device = device;
@@ -3100,9 +3110,11 @@ public class MainActivity extends Activity {
         }
 
         public void experimentalScan(List<String> commands, boolean pcSubmitted) {
-            experimentalCommands = commands == null ? new ArrayList<>() : new ArrayList<>(commands);
-            experimentalScanFromPc = pcSubmitted;
-            experimentalScanRequested = true;
+            synchronized (experimentalLock) {
+                experimentalQueue.add(new ExperimentalBatch(commands, pcSubmitted));
+                experimentalScanRequested = true;
+                diag.log("Queued OBD command batch. pending=" + experimentalQueue.size());
+            }
         }
 
         private void waitForBond() throws InterruptedException {
@@ -3288,13 +3300,15 @@ public class MainActivity extends Activity {
         }
 
         private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
-            if (!experimentalScanRequested) return;
-            experimentalScanRequested = false;
-            List<String> commands = experimentalCommands == null || experimentalCommands.isEmpty()
-                    ? new ArrayList<>()
-                    : new ArrayList<>(experimentalCommands);
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan running...");
-            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan start. commands=" + commands);
+            ExperimentalBatch batch;
+            synchronized (experimentalLock) {
+                if (!experimentalScanRequested || experimentalQueue.isEmpty()) return;
+                batch = experimentalQueue.remove(0);
+                experimentalScanRequested = !experimentalQueue.isEmpty();
+            }
+            List<String> commands = batch.commands;
+            listener.onStatus((batch.pcSubmitted ? "PC sample" : "Safe DTC") + " scan running...");
+            diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " scan start. commands=" + commands);
             int dataReplies = 0;
             int noDataReplies = 0;
             int okReplies = 0;
@@ -3302,34 +3316,34 @@ public class MainActivity extends Activity {
             for (String cmd : commands) {
                 if (!running) break;
                 try {
-                    diag.log("OBD TX cmd=" + cmd + " source=" + (experimentalScanFromPc ? "pc-sample" : "safe-dtc"));
+                    diag.log("OBD TX cmd=" + cmd + " source=" + (batch.pcSubmitted ? "pc-sample" : "safe-dtc"));
                     String reply = command(cmd, 1400);
                     String compactReply = compact(reply);
                     String upper = compactReply.toUpperCase(Locale.US);
                     if (upper.contains("NO DATA")) noDataReplies++;
                     else if ("OK".equals(upper)) okReplies++;
                     else if (!upper.trim().isEmpty()) dataReplies++;
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
                     diag.log("OBD INFO cmd=" + cmd + " reply=" + compactReply);
                 } catch (Exception ex) {
                     failedReplies++;
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
                     diag.log("OBD INFO cmd=" + cmd + " failed=" + ex.getMessage());
                 }
                 Thread.sleep(80);
             }
             String summary = "data=" + dataReplies + " noData=" + noDataReplies + " ok=" + okReplies + " failed=" + failedReplies;
-            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
+            diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
             if (running) {
                 try {
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
                     initElm();
                 } catch (Exception ex) {
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
                 }
             }
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " done: " + summary);
-            listener.onExperimentalScanDone(experimentalScanFromPc);
+            listener.onStatus((batch.pcSubmitted ? "PC sample" : "Safe DTC") + " done: " + summary);
+            listener.onExperimentalScanDone(batch.pcSubmitted);
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
@@ -3487,8 +3501,7 @@ public class MainActivity extends Activity {
         private volatile boolean running = true;
         private volatile boolean ready;
         private volatile boolean experimentalScanRequested = false;
-        private volatile boolean experimentalScanFromPc = false;
-        private List<String> experimentalCommands = new ArrayList<>();
+        private final ArrayList<ExperimentalBatch> experimentalQueue = new ArrayList<>();
 
         BleObdSession(Context context, BluetoothDevice device, ObdLink.Listener listener, DiagSink diag, PollPidSource pollPidSource) {
             this.context = context.getApplicationContext();
@@ -3534,10 +3547,10 @@ public class MainActivity extends Activity {
         }
 
         public void experimentalScan(List<String> commands, boolean pcSubmitted) {
-            experimentalCommands = commands == null ? new ArrayList<>() : new ArrayList<>(commands);
-            experimentalScanFromPc = pcSubmitted;
-            experimentalScanRequested = true;
             synchronized (lock) {
+                experimentalQueue.add(new ExperimentalBatch(commands, pcSubmitted));
+                experimentalScanRequested = true;
+                diag.log("Queued BLE OBD command batch. pending=" + experimentalQueue.size());
                 lock.notifyAll();
             }
         }
@@ -3696,13 +3709,15 @@ public class MainActivity extends Activity {
         }
 
         private void runExperimentalScanIfRequested() throws IOException, InterruptedException {
-            if (!experimentalScanRequested) return;
-            experimentalScanRequested = false;
-            List<String> commands = experimentalCommands == null || experimentalCommands.isEmpty()
-                    ? new ArrayList<>()
-                    : new ArrayList<>(experimentalCommands);
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " scan running...");
-            diag.log((experimentalScanFromPc ? "PC SAMPLE BLE" : "SAFE DTC BLE") + " scan start. commands=" + commands);
+            ExperimentalBatch batch;
+            synchronized (lock) {
+                if (!experimentalScanRequested || experimentalQueue.isEmpty()) return;
+                batch = experimentalQueue.remove(0);
+                experimentalScanRequested = !experimentalQueue.isEmpty();
+            }
+            List<String> commands = batch.commands;
+            listener.onStatus((batch.pcSubmitted ? "PC sample" : "Safe DTC") + " scan running...");
+            diag.log((batch.pcSubmitted ? "PC SAMPLE BLE" : "SAFE DTC BLE") + " scan start. commands=" + commands);
             int dataReplies = 0;
             int noDataReplies = 0;
             int okReplies = 0;
@@ -3710,34 +3725,34 @@ public class MainActivity extends Activity {
             for (String cmd : commands) {
                 if (!running) break;
                 try {
-                    diag.log("OBD TX cmd=" + cmd + " source=" + (experimentalScanFromPc ? "pc-sample-ble" : "safe-dtc-ble"));
+                    diag.log("OBD TX cmd=" + cmd + " source=" + (batch.pcSubmitted ? "pc-sample-ble" : "safe-dtc-ble"));
                     String reply = command(cmd, 1700);
                     String compactReply = compact(reply);
                     String upper = compactReply.toUpperCase(Locale.US);
                     if (upper.contains("NO DATA")) noDataReplies++;
                     else if ("OK".equals(upper)) okReplies++;
                     else if (!upper.trim().isEmpty()) dataReplies++;
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
                     diag.log("OBD INFO cmd=" + cmd + " reply=" + compactReply);
                 } catch (Exception ex) {
                     failedReplies++;
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
                     diag.log("OBD INFO cmd=" + cmd + " failed=" + ex.getMessage());
                 }
                 Thread.sleep(120);
             }
             String summary = "data=" + dataReplies + " noData=" + noDataReplies + " ok=" + okReplies + " failed=" + failedReplies;
-            diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
+            diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " scan done. " + summary);
             if (running) {
                 try {
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " restoring ELM defaults after scan.");
                     initElm();
                 } catch (Exception ex) {
-                    diag.log((experimentalScanFromPc ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
+                    diag.log((batch.pcSubmitted ? "PC SAMPLE" : "SAFE DTC") + " restore failed: " + ex.getMessage());
                 }
             }
-            listener.onStatus((experimentalScanFromPc ? "PC sample" : "Safe DTC") + " done: " + summary);
-            listener.onExperimentalScanDone(experimentalScanFromPc);
+            listener.onStatus((batch.pcSubmitted ? "PC sample" : "Safe DTC") + " done: " + summary);
+            listener.onExperimentalScanDone(batch.pcSubmitted);
         }
 
         private Map<String, Float> pollValues() throws IOException, InterruptedException {
