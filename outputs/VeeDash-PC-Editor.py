@@ -512,33 +512,38 @@ def analyze_obd_log_lines(max_lines=260):
         f"Reading {source}",
         f"Lines in log: {len(lines)}",
         "",
-        f"{'CODE':<10} {'RAW':<30} Definition",
-        f"{'-' * 10} {'-' * 30} {'-' * 40}",
+        f"{'RX/TX':<6} {'CODE':<10} {'RAW':<30} Definition",
+        f"{'-' * 6} {'-' * 10} {'-' * 30} {'-' * 40}",
     ]
     seen = 0
-    def add_row(code, raw, definition):
+    def add_row(direction, code, raw, definition):
         clean_raw = " ".join(str(raw or "").split())
         clean_definition = " ".join(str(definition or "").split())
         if len(clean_raw) > 30:
             clean_raw = clean_raw[:27] + "..."
-        output.append(f"{code:<10} {clean_raw:<30} {clean_definition}")
+        output.append(f"{direction:<6} {code:<10} {clean_raw:<30} {clean_definition}")
 
     for line in lines[-max_lines:]:
         stripped = line.strip()
         info = re.search(r"OBD INFO cmd=([^\s]+)\s+(reply|failed)=(.*)$", stripped)
         elm = re.search(r"\bELM\s+([A-Z0-9]+)\s+(?:=>|timeout/partial\s+=>)\s+(.*)$", stripped)
         data = re.search(r"\bDATA\s+(.*)$", stripped)
+        scan = re.search(r"\b(?:PC SAMPLE|SAFE DTC)(?: BLE)? scan start\. commands=\[(.*)\]", stripped)
+        if scan:
+            for cmd in [part.strip() for part in scan.group(1).split(",") if part.strip()]:
+                add_row("TX", cmd, "", "submitted OBD command")
+                seen += 1
         if info:
             cmd, kind, reply = info.group(1), info.group(2), info.group(3)
             human = reply if kind == "failed" else decode_obd_reply(cmd, reply)
-            add_row(cmd, reply, human)
+            add_row("RX", cmd, reply, human)
             seen += 1
         elif elm:
             cmd, reply = elm.group(1), elm.group(2)
-            add_row(cmd, reply, decode_obd_reply(cmd, reply))
+            add_row("RX", cmd, reply, decode_obd_reply(cmd, reply))
             seen += 1
         elif data:
-            add_row("DATA", data.group(1), "decoded live gauge values")
+            add_row("DATA", "LIVE", data.group(1), "decoded live gauge values")
             seen += 1
     if seen == 0:
         output.append("No OBD command/reply lines found in the newest part of the log.")
