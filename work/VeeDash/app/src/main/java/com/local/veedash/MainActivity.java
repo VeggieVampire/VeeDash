@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1050";
+    private static final String APP_VERSION = "2026.07.28-1105";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -3264,9 +3264,11 @@ public class MainActivity extends Activity {
                     else if ("OK".equals(upper)) okReplies++;
                     else if (!upper.trim().isEmpty()) dataReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
+                    diag.log("OBD INFO cmd=" + cmd + " reply=" + compactReply);
                 } catch (Exception ex) {
                     failedReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
+                    diag.log("OBD INFO cmd=" + cmd + " failed=" + ex.getMessage());
                 }
                 Thread.sleep(80);
             }
@@ -3665,9 +3667,11 @@ public class MainActivity extends Activity {
                     else if ("OK".equals(upper)) okReplies++;
                     else if (!upper.trim().isEmpty()) dataReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " => " + compactReply);
+                    diag.log("OBD INFO cmd=" + cmd + " reply=" + compactReply);
                 } catch (Exception ex) {
                     failedReplies++;
                     diag.log((experimentalScanFromPc ? "PC SAMPLE " : "SAFE DTC ") + cmd + " failed: " + ex.getMessage());
+                    diag.log("OBD INFO cmd=" + cmd + " failed=" + ex.getMessage());
                 }
                 Thread.sleep(120);
             }
