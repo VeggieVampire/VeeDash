@@ -33,6 +33,7 @@ LAST_CONFIG_SERVED = BASE / "VeeDash-last-config-served.txt"
 LAST_WELCOME = BASE / "VeeDash-last-welcome.txt"
 LAST_COMMAND_RUN = BASE / "VeeDash-last-command-run.txt"
 COMMAND_OUTPUT = BASE / "VeeDash-command-output.txt"
+OBD_ANALYSIS = LOG_DIR / "VeeDash-obd-analysis.txt"
 SERVER_PORT = 8766
 AWAY_SECONDS = 45
 
@@ -384,6 +385,153 @@ def latest_logged_client_ip():
     return ""
 
 
+def clean_hex(text):
+    return re.sub(r"[^0-9A-Fa-f]", "", text or "").upper()
+
+
+def hex_bytes(text):
+    raw = clean_hex(text)
+    if len(raw) % 2:
+        raw = raw[:-1]
+    return [int(raw[i:i + 2], 16) for i in range(0, len(raw), 2)]
+
+
+def printable_ascii_from_hex(text):
+    chars = []
+    for value in hex_bytes(text):
+        if 32 <= value <= 126:
+            chars.append(chr(value))
+    return "".join(chars).strip()
+
+
+def decode_dtcs_from_bytes(values):
+    if not values:
+        return []
+    codes = []
+    for i in range(0, len(values) - 1, 2):
+        a, b = values[i], values[i + 1]
+        if a == 0 and b == 0:
+            continue
+        family = "PCBU"[(a & 0xC0) >> 6]
+        codes.append(f"{family}{(a & 0x30) >> 4}{a & 0x0F:X}{(b & 0xF0) >> 4:X}{b & 0x0F:X}")
+    return codes
+
+
+def find_reply_bytes(reply, marker):
+    values = hex_bytes(reply)
+    marker_values = hex_bytes(marker)
+    needed = len(marker_values)
+    for index in range(0, max(0, len(values) - needed + 1)):
+        if values[index:index + needed] == marker_values:
+            return values[index + needed:]
+    return []
+
+
+def decode_obd_reply(command, reply):
+    cmd = (command or "").strip().upper().replace(" ", "")
+    text = (reply or "").strip()
+    upper = text.upper()
+    if not text:
+        return "empty reply"
+    if "NO DATA" in upper:
+        return "no module replied"
+    if "STOPPED" in upper:
+        return "adapter stopped waiting"
+    if upper == "OK":
+        return "adapter accepted command"
+    if cmd == "ATDPN":
+        return f"ELM protocol number {text}"
+    if cmd == "ATDP":
+        return f"ELM protocol {text}"
+    if cmd.startswith("AT"):
+        return f"adapter reply {text}"
+
+    if cmd in ("03", "07", "0A"):
+        marker = {"03": "43", "07": "47", "0A": "4A"}[cmd]
+        codes = decode_dtcs_from_bytes(find_reply_bytes(text, marker))
+        return "DTCs " + ", ".join(codes) if codes else "no generic OBD-II DTCs reported"
+
+    if cmd.startswith("09"):
+        ascii_text = printable_ascii_from_hex(text)
+        if cmd == "0902" and ascii_text:
+            return f"VIN/service 09 text: {ascii_text}"
+        if ascii_text:
+            return f"service 09 text: {ascii_text}"
+        return "service 09 reply, no printable text decoded"
+
+    if len(cmd) >= 4 and cmd.startswith("01"):
+        pid = cmd[:4]
+        data = find_reply_bytes(text, "41" + pid[2:])
+        if pid == "010C" and len(data) >= 2:
+            return f"RPM {(data[0] * 256 + data[1]) / 4:.0f}"
+        if pid == "010D" and len(data) >= 1:
+            kph = data[0]
+            return f"speed {kph * 0.621371:.1f} mph ({kph} kph)"
+        if pid == "0105" and len(data) >= 1:
+            c = data[0] - 40
+            return f"coolant {c * 9 / 5 + 32:.1f} F ({c} C)"
+        if pid == "0142" and len(data) >= 2:
+            return f"control module voltage {(data[0] * 256 + data[1]) / 1000:.2f} V"
+        if pid == "0104" and len(data) >= 1:
+            return f"engine load {data[0] * 100 / 255:.1f}%"
+        if pid == "0111" and len(data) >= 1:
+            return f"throttle {data[0] * 100 / 255:.1f}%"
+        if pid == "010B" and len(data) >= 1:
+            return f"intake manifold pressure {data[0]} kPa"
+        if pid == "010F" and len(data) >= 1:
+            return f"intake air temp {data[0] - 40} C"
+        if pid == "010E" and len(data) >= 1:
+            return f"timing advance {data[0] / 2 - 64:.1f} deg"
+        if pid in ("0106", "0107") and len(data) >= 1:
+            return f"fuel trim {data[0] * 100 / 128 - 100:.1f}%"
+        if pid == "011F" and len(data) >= 2:
+            return f"run time since start {data[0] * 256 + data[1]} seconds"
+        if pid == "0101" and data:
+            return "monitor status raw bytes " + " ".join(f"{b:02X}" for b in data[:4])
+        if pid == "0103" and data:
+            return "fuel system status raw bytes " + " ".join(f"{b:02X}" for b in data[:2])
+        if pid == "011C" and data:
+            return f"OBD standard/protocol type {data[0]}"
+        if pid == "0120" and data:
+            return "supported PIDs 21-40 bitmask " + " ".join(f"{b:02X}" for b in data[:4])
+        if data:
+            return "mode 01 data bytes " + " ".join(f"{b:02X}" for b in data)
+
+    return "raw reply " + text
+
+
+def analyze_obd_log_lines(max_lines=260):
+    candidates = [LOG_FILE, LEGACY_LOG_FILE]
+    source = next((path for path in candidates if path.exists() and path.stat().st_size > 0), None)
+    if not source:
+        return "No OBD log found yet.\nWaiting for VeeDash-live-log.txt."
+    lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+    output = [f"Reading {source}", f"Lines in log: {len(lines)}", ""]
+    seen = 0
+    for line in lines[-max_lines:]:
+        stripped = line.strip()
+        info = re.search(r"OBD INFO cmd=([^\s]+)\s+(reply|failed)=(.*)$", stripped)
+        elm = re.search(r"\bELM\s+([A-Z0-9]+)\s+(?:=>|timeout/partial\s+=>)\s+(.*)$", stripped)
+        data = re.search(r"\bDATA\s+(.*)$", stripped)
+        if info:
+            cmd, kind, reply = info.group(1), info.group(2), info.group(3)
+            human = reply if kind == "failed" else decode_obd_reply(cmd, reply)
+            output.append(f"{cmd:8} {kind.upper():5} {human}")
+            output.append(f"         raw: {reply}")
+            seen += 1
+        elif elm:
+            cmd, reply = elm.group(1), elm.group(2)
+            output.append(f"{cmd:8} LIVE  {decode_obd_reply(cmd, reply)}")
+            output.append(f"         raw: {reply}")
+            seen += 1
+        elif data:
+            output.append("DATA     " + data.group(1))
+            seen += 1
+    if seen == 0:
+        output.append("No OBD command/reply lines found in the newest part of the log.")
+    return "\n".join(output)
+
+
 def config_mtime():
     try:
         return int(CONFIG.stat().st_mtime)
@@ -711,6 +859,7 @@ class Editor(tk.Tk):
 
         ttk.Label(left, textvariable=self.info_text, foreground="#06c", wraplength=290).pack(anchor="w", pady=(0, 8))
         notebook = ttk.Notebook(left)
+        self.notebook = notebook
         notebook.pack(fill=tk.BOTH, expand=True)
 
         item_tab = ttk.Frame(notebook, padding=8)
@@ -723,6 +872,7 @@ class Editor(tk.Tk):
         notebook.add(dash_tab, text="Dash")
         notebook.add(network_tab, text="Network")
         notebook.add(automation_tab, text="Auto")
+        notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
         ttk.Label(network_tab, text="Connection").pack(anchor="w")
         ttk.Label(network_tab, textvariable=self.server_address, foreground="#0a7").pack(anchor="w")
@@ -865,12 +1015,58 @@ class Editor(tk.Tk):
         self.obd_samples_text.insert("1.0", str(self.data.get("obdSampleCommands", DEFAULT["obdSampleCommands"])))
         ttk.Button(automation_tab, text="Submit OBD samples now", command=self.save_obd_samples).pack(fill=tk.X, pady=4)
 
+        ttk.Label(automation_tab, text="OBD live log reader").pack(anchor="w", pady=(12, 2))
+        ttk.Button(automation_tab, text="Analyze VeeDash-live-log.txt", command=self.analyze_obd_log).pack(fill=tk.X, pady=(0, 4))
+        obd_frame = ttk.Frame(automation_tab)
+        obd_frame.pack(fill=tk.BOTH, expand=True)
+        self.obd_analysis = tk.Text(obd_frame, height=15, width=30, wrap="none")
+        obd_scroll = ttk.Scrollbar(obd_frame, orient=tk.VERTICAL, command=self.obd_analysis.yview)
+        self.obd_analysis.configure(yscrollcommand=obd_scroll.set)
+        self.obd_analysis.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        obd_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.obd_analysis.insert("1.0", "Click Auto or Analyze to read the newest VeeDash-live-log.txt lines.")
+
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<ButtonPress-1>", self.start_drag)
         self.canvas.bind("<B1-Motion>", self.drag)
         self.canvas.bind("<ButtonRelease-1>", self.end_drag)
-        ttk.Label(right, text="Drag items to move. Drag the small white corner handle to resize. Dial images/GIFs are staged to the dash and clipped to fill the whole dial.").pack(anchor="w")
+        self.canvas_help = ttk.Label(right, text="Drag items to move. Drag the small white corner handle to resize. Dial images/GIFs are staged to the dash and clipped to fill the whole dial.")
+        self.canvas_help.pack(anchor="w")
+
+        self.obd_reader_right = ttk.Frame(right)
+        ttk.Label(self.obd_reader_right, text="OBD log reader - newest decoded command replies from VeeDash-live-log.txt").pack(anchor="w")
+        big_frame = ttk.Frame(self.obd_reader_right)
+        big_frame.pack(fill=tk.BOTH, expand=True)
+        self.obd_analysis_big = tk.Text(big_frame, wrap="none")
+        big_scroll_y = ttk.Scrollbar(big_frame, orient=tk.VERTICAL, command=self.obd_analysis_big.yview)
+        big_scroll_x = ttk.Scrollbar(self.obd_reader_right, orient=tk.HORIZONTAL, command=self.obd_analysis_big.xview)
+        self.obd_analysis_big.configure(yscrollcommand=big_scroll_y.set, xscrollcommand=big_scroll_x.set)
+        self.obd_analysis_big.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        big_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        big_scroll_x.pack(fill=tk.X)
+
+    def on_tab_changed(self, _event=None):
+        try:
+            tab_name = self.notebook.tab(self.notebook.select(), "text")
+        except Exception:
+            return
+        if tab_name == "Auto":
+            self.analyze_obd_log()
+            self.show_obd_reader()
+        else:
+            self.show_dashboard_preview()
+
+    def show_obd_reader(self):
+        self.canvas.pack_forget()
+        self.canvas_help.pack_forget()
+        self.obd_reader_right.pack(fill=tk.BOTH, expand=True)
+
+    def show_dashboard_preview(self):
+        self.obd_reader_right.pack_forget()
+        if not self.canvas.winfo_ismapped():
+            self.canvas.pack(fill=tk.BOTH, expand=True)
+            self.canvas_help.pack(anchor="w")
 
     def item_keys(self):
         return [g["key"] for g in self.data["gauges"]] + [o["key"] for o in self.data["overlays"]]
@@ -1242,6 +1438,18 @@ class Editor(tk.Tk):
         self.data["obdSampleSeq"] = datetime.now().isoformat(timespec="seconds")
         save_config(self.data)
         self.info_text.set(f"OBD samples submitted at {self.data['obdSampleSeq']}. Experiment-enabled dash will run them.")
+
+    def analyze_obd_log(self):
+        ensure_log_dir()
+        text = analyze_obd_log_lines()
+        OBD_ANALYSIS.write_text(text, encoding="utf-8")
+        if hasattr(self, "obd_analysis"):
+            self.obd_analysis.delete("1.0", "end")
+            self.obd_analysis.insert("1.0", text)
+        if hasattr(self, "obd_analysis_big"):
+            self.obd_analysis_big.delete("1.0", "end")
+            self.obd_analysis_big.insert("1.0", text)
+        self.info_text.set(f"Read OBD log line by line. Analysis saved to {OBD_ANALYSIS.name}.")
 
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()
