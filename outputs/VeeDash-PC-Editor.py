@@ -183,7 +183,7 @@ GAUGE_LABELS = {
 }
 AUTO_TINT_PRESETS = {
     "rpm": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 6500, "scaleMax": 1.25, "midAt": 3500, "highAt": 5500, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
-    "coolant": {"tint": True, "grow": False, "valueMin": 60, "valueMax": 115, "scaleMax": 1.20, "midAt": 92, "highAt": 105, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
+    "coolant": {"tint": True, "grow": False, "valueMin": 140, "valueMax": 240, "scaleMax": 1.20, "midAt": 190, "highAt": 220, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
     "volts": {"tint": True, "grow": False, "valueMin": 11.5, "valueMax": 15.0, "scaleMax": 1.15, "midAt": 12.4, "highAt": 15.0, "lowColor": "#ff3b30", "midColor": "#1fb6ff", "highColor": "#ffd166"},
     "load": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 100, "scaleMax": 1.25, "midAt": 65, "highAt": 90, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
     "throttle": {"tint": True, "grow": False, "valueMin": 0, "valueMax": 100, "scaleMax": 1.25, "midAt": 50, "highAt": 85, "lowColor": "#1fb6ff", "midColor": "#ffd166", "highColor": "#ff3b30"},
@@ -313,6 +313,8 @@ def normalize(data):
         g.setdefault("imageAsset", "")
         reactive = dict(default_g.get("reactive", {}))
         reactive.update(g.get("reactive", {}))
+        if pid == "coolant" and float(reactive.get("valueMax", 0) or 0) <= 130:
+            reactive.update(AUTO_TINT_PRESETS["coolant"])
         reactive.setdefault("imageGrow", False)
         g["reactive"] = reactive
         data["gauges"].append(g)

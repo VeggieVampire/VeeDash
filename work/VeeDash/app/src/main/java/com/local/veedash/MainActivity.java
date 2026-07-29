@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1105";
+    private static final String APP_VERSION = "2026.07.28-1120";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -1799,13 +1799,14 @@ public class MainActivity extends Activity {
         appendDataValue(out, values, "speed", "mph", "%.0f");
         appendDataValue(out, values, "speedKph", "kphRaw", "%.0f");
         appendDataValue(out, values, "coolant", "coolantF", "%.0f");
+        appendDataValue(out, values, "coolantC", "coolantC", "%.0f");
         appendDataValue(out, values, "volts", "volts", "%.1f");
         appendDataValue(out, values, "load", "load", "%.0f");
         appendDataValue(out, values, "throttle", "throttle", "%.0f");
         for (Map.Entry<String, Float> entry : values.entrySet()) {
             String key = entry.getKey();
             if ("rpm".equals(key) || "speed".equals(key) || "speedKph".equals(key)
-                    || "coolant".equals(key) || "volts".equals(key)
+                    || "coolant".equals(key) || "coolantC".equals(key) || "volts".equals(key)
                     || "load".equals(key) || "throttle".equals(key)) continue;
             out.append(' ')
                     .append(key)
@@ -2218,6 +2219,12 @@ public class MainActivity extends Activity {
                         gauge.lowColor = parseColor(reactive.optString("lowColor", ""), gauge.lowColor);
                         gauge.midColor = parseColor(reactive.optString("midColor", ""), gauge.midColor);
                         gauge.highColor = parseColor(reactive.optString("highColor", ""), gauge.highColor);
+                        if ("coolant".equals(gauge.pid) && gauge.valueMax <= 130f) {
+                            gauge.valueMin = 140f;
+                            gauge.valueMax = 240f;
+                            gauge.midAt = 190f;
+                            gauge.highAt = 220f;
+                        }
                     }
                     gauges.add(gauge);
                     loadGaugeArt(gauge.key);
@@ -2874,7 +2881,7 @@ public class MainActivity extends Activity {
             } else if ("speed".equals(pid)) {
                 valueMax = 120f; midAt = 45f; highAt = 80f; scaleMax = 1.20f;
             } else if ("coolant".equals(pid)) {
-                valueMin = 60f; valueMax = 115f; midAt = 92f; highAt = 105f; reactiveTint = true; scaleMax = 1.20f;
+                valueMin = 140f; valueMax = 240f; midAt = 190f; highAt = 220f; reactiveTint = true; scaleMax = 1.20f;
             } else if ("volts".equals(pid)) {
                 reactiveTint = true; valueMin = 11.5f; valueMax = 15f; midAt = 12.4f; highAt = 15f; scaleMax = 1.15f;
                 lowColor = 0xffff3b30; midColor = 0xff1fb6ff; highColor = 0xffffd166;
@@ -3347,6 +3354,10 @@ public class MainActivity extends Activity {
             int[] bytes = payload(raw, header, 1);
             if (bytes != null) {
                 float value = offset + bytes[0] * scale;
+                if ("coolant".equals(key)) {
+                    out.put("coolantC", value);
+                    value = value * 9f / 5f + 32f;
+                }
                 out.put(key, value);
                 out.put(headerToConfigPid(header), value);
             }
@@ -3756,6 +3767,10 @@ public class MainActivity extends Activity {
             int[] bytes = payload(raw, header, 1);
             if (bytes != null) {
                 float value = offset + bytes[0] * scale;
+                if ("coolant".equals(key)) {
+                    out.put("coolantC", value);
+                    value = value * 9f / 5f + 32f;
+                }
                 out.put(key, value);
                 out.put(headerToConfigPid(header), value);
             }
