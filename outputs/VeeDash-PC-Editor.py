@@ -1016,15 +1016,8 @@ class Editor(tk.Tk):
         ttk.Button(automation_tab, text="Submit OBD samples now", command=self.save_obd_samples).pack(fill=tk.X, pady=4)
 
         ttk.Label(automation_tab, text="OBD live log reader").pack(anchor="w", pady=(12, 2))
-        ttk.Button(automation_tab, text="Analyze VeeDash-live-log.txt", command=self.analyze_obd_log).pack(fill=tk.X, pady=(0, 4))
-        obd_frame = ttk.Frame(automation_tab)
-        obd_frame.pack(fill=tk.BOTH, expand=True)
-        self.obd_analysis = tk.Text(obd_frame, height=15, width=30, wrap="none")
-        obd_scroll = ttk.Scrollbar(obd_frame, orient=tk.VERTICAL, command=self.obd_analysis.yview)
-        self.obd_analysis.configure(yscrollcommand=obd_scroll.set)
-        self.obd_analysis.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        obd_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.obd_analysis.insert("1.0", "Click Auto or Analyze to read the newest VeeDash-live-log.txt lines.")
+        ttk.Button(automation_tab, text="Analyze now", command=self.analyze_obd_log).pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(automation_tab, text="Decoded OBD output appears on the right and refreshes while Auto is open.", wraplength=290).pack(anchor="w")
 
         self.canvas = tk.Canvas(right, width=800, height=480, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -1038,7 +1031,7 @@ class Editor(tk.Tk):
         ttk.Label(self.obd_reader_right, text="OBD log reader - newest decoded command replies from VeeDash-live-log.txt").pack(anchor="w")
         big_frame = ttk.Frame(self.obd_reader_right)
         big_frame.pack(fill=tk.BOTH, expand=True)
-        self.obd_analysis_big = tk.Text(big_frame, wrap="none")
+        self.obd_analysis_big = tk.Text(big_frame, wrap="none", bg="#001a0b", fg="#47ff86", insertbackground="#47ff86")
         big_scroll_y = ttk.Scrollbar(big_frame, orient=tk.VERTICAL, command=self.obd_analysis_big.yview)
         big_scroll_x = ttk.Scrollbar(self.obd_reader_right, orient=tk.HORIZONTAL, command=self.obd_analysis_big.xview)
         self.obd_analysis_big.configure(yscrollcommand=big_scroll_y.set, xscrollcommand=big_scroll_x.set)
@@ -1054,6 +1047,7 @@ class Editor(tk.Tk):
         if tab_name == "Auto":
             self.analyze_obd_log()
             self.show_obd_reader()
+            self.schedule_obd_auto_analysis()
         else:
             self.show_dashboard_preview()
 
@@ -1067,6 +1061,22 @@ class Editor(tk.Tk):
         if not self.canvas.winfo_ismapped():
             self.canvas.pack(fill=tk.BOTH, expand=True)
             self.canvas_help.pack(anchor="w")
+
+    def schedule_obd_auto_analysis(self):
+        if getattr(self, "_obd_auto_after", None):
+            return
+        self._obd_auto_after = self.after(2000, self.auto_analyze_obd_log)
+
+    def auto_analyze_obd_log(self):
+        self._obd_auto_after = None
+        try:
+            tab_name = self.notebook.tab(self.notebook.select(), "text")
+        except Exception:
+            return
+        if tab_name != "Auto":
+            return
+        self.analyze_obd_log(auto=True)
+        self.schedule_obd_auto_analysis()
 
     def item_keys(self):
         return [g["key"] for g in self.data["gauges"]] + [o["key"] for o in self.data["overlays"]]
@@ -1439,17 +1449,15 @@ class Editor(tk.Tk):
         save_config(self.data)
         self.info_text.set(f"OBD samples submitted at {self.data['obdSampleSeq']}. Experiment-enabled dash will run them.")
 
-    def analyze_obd_log(self):
+    def analyze_obd_log(self, auto=False):
         ensure_log_dir()
         text = analyze_obd_log_lines()
         OBD_ANALYSIS.write_text(text, encoding="utf-8")
-        if hasattr(self, "obd_analysis"):
-            self.obd_analysis.delete("1.0", "end")
-            self.obd_analysis.insert("1.0", text)
         if hasattr(self, "obd_analysis_big"):
             self.obd_analysis_big.delete("1.0", "end")
             self.obd_analysis_big.insert("1.0", text)
-        self.info_text.set(f"Read OBD log line by line. Analysis saved to {OBD_ANALYSIS.name}.")
+        if not auto:
+            self.info_text.set(f"Auto is reading OBD log lines. Analysis saved to {OBD_ANALYSIS.name}.")
 
     def run_command(self):
         command = self.command_text.get("1.0", "end").strip()
