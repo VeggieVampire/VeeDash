@@ -543,7 +543,7 @@ def analyze_obd_log_lines(max_lines=260):
         stripped = line.strip()
         timestamp = row_time(stripped)
         info = re.search(r"OBD INFO cmd=([^\s]+)\s+(reply|failed)=(.*)$", stripped)
-        tx = re.search(r"OBD TX cmd=([^\s]+)(?:\s+seq=(.*))?$", stripped)
+        tx = re.search(r"OBD TX cmd=([^\s]+)(?:\s+(.*))?$", stripped)
         elm = re.search(r"\bELM\s+([A-Z0-9]+)\s+(?:=>|timeout/partial\s+=>)\s+(.*)$", stripped)
         data = re.search(r"\bDATA\s+(.*)$", stripped)
         scan = re.search(r"\b(?:PC SAMPLE|SAFE DTC)(?: BLE)? scan start\. commands=\[(.*)\]", stripped)
@@ -552,8 +552,8 @@ def analyze_obd_log_lines(max_lines=260):
                 add_row(timestamp, "TX", cmd, "", "submitted OBD command")
                 seen += 1
         if tx:
-            cmd, seq = tx.group(1), tx.group(2) or ""
-            add_row(timestamp, "TX", cmd, "", ("submitted OBD command " + seq).strip())
+            cmd, detail = tx.group(1), tx.group(2) or ""
+            add_row(timestamp, "TX", cmd, "", ("submitted OBD command " + detail).strip())
             seen += 1
         elif info:
             cmd, kind, reply = info.group(1), info.group(2), info.group(3)

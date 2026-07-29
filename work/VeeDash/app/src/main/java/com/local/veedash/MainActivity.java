@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1145";
+    private static final String APP_VERSION = "2026.07.28-1210";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -570,9 +570,18 @@ public class MainActivity extends Activity {
     private void toggleExperimentalObd() {
         experimentalObdEnabled = !experimentalObdEnabled;
         addDiag("Experimental OBD command mode " + (experimentalObdEnabled ? "ON" : "OFF"));
-        popupChat(experimentalObdEnabled
-                ? "Experiment mode ON.\nPC sample commands can now be sent to OBD."
-                : "Experiment mode OFF.\nPC sample commands are blocked.");
+        if (experimentalObdEnabled) {
+            lastPcSampleSeq = "";
+            pcSampleRunQueued = false;
+            popupChat("Experiment mode ON.\nFetching PC OBD command queue now.");
+            if (obdSession == null) {
+                addDiag("Experiment ON: waiting for VeePeak before fetching PC OBD commands");
+            } else {
+                fetchPcSampleCommands(true);
+            }
+        } else {
+            popupChat("Experiment mode OFF.\nPC sample commands are blocked.");
+        }
         showDebugMenu();
     }
 
@@ -3293,6 +3302,7 @@ public class MainActivity extends Activity {
             for (String cmd : commands) {
                 if (!running) break;
                 try {
+                    diag.log("OBD TX cmd=" + cmd + " source=" + (experimentalScanFromPc ? "pc-sample" : "safe-dtc"));
                     String reply = command(cmd, 1400);
                     String compactReply = compact(reply);
                     String upper = compactReply.toUpperCase(Locale.US);
@@ -3700,6 +3710,7 @@ public class MainActivity extends Activity {
             for (String cmd : commands) {
                 if (!running) break;
                 try {
+                    diag.log("OBD TX cmd=" + cmd + " source=" + (experimentalScanFromPc ? "pc-sample-ble" : "safe-dtc-ble"));
                     String reply = command(cmd, 1700);
                     String compactReply = compact(reply);
                     String upper = compactReply.toUpperCase(Locale.US);
