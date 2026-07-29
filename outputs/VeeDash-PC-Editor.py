@@ -362,6 +362,15 @@ def obd_sample_seq(data=None):
     return str(data.get("obdSampleSeq", "") or data.get("updatedAt", "") or config_mtime())
 
 
+def append_obd_tx_rows(commands, seq):
+    ensure_log_dir()
+    now = datetime.now().isoformat(timespec="seconds")
+    dash_time = datetime.now().strftime("%H:%M:%S")
+    with LOG_FILE.open("a", encoding="utf-8") as handle:
+        for command in commands:
+            handle.write(f"{now} seq=pc from=PC {dash_time}  OBD TX cmd={command} seq={seq}\n")
+
+
 def local_ip():
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -534,6 +543,7 @@ def analyze_obd_log_lines(max_lines=260):
         stripped = line.strip()
         timestamp = row_time(stripped)
         info = re.search(r"OBD INFO cmd=([^\s]+)\s+(reply|failed)=(.*)$", stripped)
+        tx = re.search(r"OBD TX cmd=([^\s]+)(?:\s+seq=(.*))?$", stripped)
         elm = re.search(r"\bELM\s+([A-Z0-9]+)\s+(?:=>|timeout/partial\s+=>)\s+(.*)$", stripped)
         data = re.search(r"\bDATA\s+(.*)$", stripped)
         scan = re.search(r"\b(?:PC SAMPLE|SAFE DTC)(?: BLE)? scan start\. commands=\[(.*)\]", stripped)
@@ -541,7 +551,11 @@ def analyze_obd_log_lines(max_lines=260):
             for cmd in [part.strip() for part in scan.group(1).split(",") if part.strip()]:
                 add_row(timestamp, "TX", cmd, "", "submitted OBD command")
                 seen += 1
-        if info:
+        if tx:
+            cmd, seq = tx.group(1), tx.group(2) or ""
+            add_row(timestamp, "TX", cmd, "", ("submitted OBD command " + seq).strip())
+            seen += 1
+        elif info:
             cmd, kind, reply = info.group(1), info.group(2), info.group(3)
             human = reply if kind == "failed" else decode_obd_reply(cmd, reply)
             add_row(timestamp, "RX", cmd, reply, human)
@@ -1473,7 +1487,14 @@ class Editor(tk.Tk):
         self.data["obdSampleCommands"] = self.obd_samples_text.get("1.0", "end").strip()
         self.data["obdSampleSeq"] = datetime.now().isoformat(timespec="seconds")
         save_config(self.data)
-        self.info_text.set(f"OBD samples submitted at {self.data['obdSampleSeq']}. Experiment-enabled dash will run them.")
+        commands = obd_sample_commands(self.data)
+        append_obd_tx_rows(commands, self.data["obdSampleSeq"])
+        message = "PC submitted OBD sample commands.\nExperiment-enabled dash should run them now."
+        MESSAGE.write_text(f"{message}\nVEEDASH_OBD_SAMPLE_NOW={self.data['obdSampleSeq']}", encoding="utf-8")
+        self.message.delete("1.0", "end")
+        self.message.insert("1.0", message)
+        self.analyze_obd_log(auto=True)
+        self.info_text.set(f"OBD samples submitted at {self.data['obdSampleSeq']}. TX rows written; dash command marker sent.")
 
     def analyze_obd_log(self, auto=False):
         ensure_log_dir()

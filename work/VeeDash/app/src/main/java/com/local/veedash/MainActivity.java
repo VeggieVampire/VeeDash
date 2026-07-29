@@ -87,7 +87,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "2026.07.28-1120";
+    private static final String APP_VERSION = "2026.07.28-1145";
     private static final int PICK_BACKGROUND = 500;
     private static final int REQUEST_PERMS = 501;
     private static final String DEFAULT_PC_HOST = "192.168.0.130";
@@ -153,6 +153,7 @@ public class MainActivity extends Activity {
     private String lastConfig = "";
     private String lastConfigVersion = "-";
     private String lastPullCommand = "";
+    private String lastObdSampleCommand = "";
     private String lastPcSampleSeq = "";
     private String lastBackgroundAsset = "";
     private String pcHost = DEFAULT_PC_HOST;
@@ -1076,6 +1077,7 @@ public class MainActivity extends Activity {
                 String message = out.toString().trim();
                 noteRemoteOk();
                 String pullCommand = pullCommandFromMessage(message);
+                String obdCommand = obdSampleCommandFromMessage(message);
                 String displayMessage = displayMessageFromWire(message);
                 if (!pullCommand.isEmpty() && !pullCommand.equals(lastPullCommand)) {
                     lastPullCommand = pullCommand;
@@ -1083,6 +1085,22 @@ public class MainActivity extends Activity {
                         addDiag("PC push command received: " + pullCommand);
                         popupChat(displayMessage.isEmpty() ? "PC editor pushed a dashboard update.\nPulling newest config now." : displayMessage);
                         fetchRemoteConfig(true);
+                    });
+                }
+                if (!obdCommand.isEmpty() && !obdCommand.equals(lastObdSampleCommand)) {
+                    lastObdSampleCommand = obdCommand;
+                    ui.post(() -> {
+                        addDiag("PC OBD sample command received: " + obdCommand);
+                        if (!experimentalObdEnabled) {
+                            addDiag("PC OBD sample blocked: experiment mode OFF");
+                            popupChat("PC submitted OBD commands, but Experiment mode is OFF.\nTurn Experiment ON to allow them.");
+                        } else if (obdSession == null) {
+                            addDiag("PC OBD sample blocked: no OBD session");
+                            popupChat("PC submitted OBD commands, but VeePeak is not connected yet.");
+                        } else {
+                            popupChat(displayMessage.isEmpty() ? "PC submitted OBD commands.\nRunning sample scan now." : displayMessage);
+                            fetchPcSampleCommands(true);
+                        }
                     });
                 } else if (!displayMessage.isEmpty() && !displayMessage.equals(coachMessage)) {
                     ui.post(() -> {
@@ -1107,6 +1125,16 @@ public class MainActivity extends Activity {
         return "";
     }
 
+    private String obdSampleCommandFromMessage(String message) {
+        if (message == null || message.isEmpty()) return "";
+        String[] lines = message.split("\\r?\\n");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("VEEDASH_OBD_SAMPLE_NOW=")) return trimmed;
+        }
+        return "";
+    }
+
     private String displayMessageFromWire(String message) {
         if (message == null || message.isEmpty()) return "";
         String[] lines = message.split("\\r?\\n");
@@ -1114,6 +1142,7 @@ public class MainActivity extends Activity {
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.startsWith("VEEDASH_PULL_NOW=")) continue;
+            if (trimmed.startsWith("VEEDASH_OBD_SAMPLE_NOW=")) continue;
             if (clean.length() > 0) clean.append('\n');
             clean.append(line);
         }
